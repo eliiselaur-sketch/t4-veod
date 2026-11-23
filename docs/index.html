@@ -50,6 +50,12 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
 .t4-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12);
   border-radius: 8px; padding: 4px 8px; font-size: .8rem; white-space: nowrap; }
 .t4-note { font-size: .8rem; color: var(--muted); margin: 0; }
+.t4 tr.t4-group td { font-weight: 600; background: color-mix(in srgb, var(--line) 35%, transparent); }
+.t4 tr.t4-sub td:first-child { padding-left: 28px; color: var(--muted); }
+.t4-small table { font-size: .85rem; }
+.t4-small th, .t4-small td { padding: 6px 12px; }
+.t4-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.t4-two h3 { font-size: .9rem; font-weight: 600; margin: 0 0 6px; color: var(--muted); }
 .t4-error { padding: 14px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); }
 </style>
 </head>
@@ -79,6 +85,15 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     <div class="t4-wrap"><table>
       <thead><tr><th>Karjäär</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
       <tbody id="tabel"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Materjalid täna</h2>
+    <p class="t4-sub" id="mat-tana-sub">Mis materjali igast karjäärist täna toodud on.</p>
+    <div class="t4-wrap"><table>
+      <thead><tr><th>Karjäär / materjal</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+      <tbody id="mat-tana"></tbody>
     </table></div>
   </section>
 
@@ -113,6 +128,27 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
       <thead><tr><th>Päev</th><th class="l">Karjäär</th><th>Seis kell</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
       <tbody id="paevakarjaar"></tbody>
     </table></div>
+  </section>
+
+  <section class="t4-small" id="kokku-sektsioon">
+    <h2>Kokku toodud</h2>
+    <p class="t4-sub" id="kokku-sub">Kogu perioodi jooksul objektile toodud materjal.</p>
+    <div class="t4-two">
+      <div>
+        <h3>Materjalide kaupa</h3>
+        <div class="t4-wrap"><table>
+          <thead><tr><th>Materjal</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+          <tbody id="kokku-mat"></tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>Karjääride ja materjalide kaupa</h3>
+        <div class="t4-wrap"><table>
+          <thead><tr><th>Karjäär / materjal</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+          <tbody id="kokku-karjaar"></tbody>
+        </table></div>
+      </div>
+    </div>
   </section>
 
   <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 8–19 iga tunni järel; leht laeb uued andmed ise iga 5 minuti tagant. Kui mõni tund puudub, ei õnnestunud tol korral andmeid kätte saada.</p>
@@ -190,10 +226,53 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
       .style('fill', 'var(--fg)').text(fmtT(last.tonnid));
   }
 
+  // Karjäär -> materjalid rühmitatud tabel (karjääri summarida + materjali read)
+  function groupedTable(id, rows) {
+    const byQ = d3.rollups(rows, (v) => v, (r) => r.karjaar)
+      .map(([q, v]) => ({ q, v, n: d3.sum(v, (r) => r.koormaid), t: d3.sum(v, (r) => r.tonnid) }))
+      .sort((a, b) => b.t - a.t);
+    const out = [];
+    byQ.forEach((g) => {
+      out.push({ cls: 't4-group', cells: [g.q, fmtN(g.n), fmtT(g.t)] });
+      if (g.v.length > 1 || g.v[0].materjal !== g.q) {
+        g.v.sort((a, b) => b.tonnid - a.tonnid).forEach((r) => out.push({ cls: 't4-sub', cells: [r.materjal, fmtN(r.koormaid), fmtT(r.tonnid)] }));
+      }
+    });
+    if (!out.length) out.push({ cls: 't4-zero', cells: ['Täna veel vedusid pole', '', ''] });
+    fillTable(id, out, (r) => r.cells, (r) => r.cls);
+  }
+
+  function sumMaterials(list) {
+    return d3.rollups(list, (v) => ({ koormaid: d3.sum(v, (r) => +r.koormaid), tonnid: d3.sum(v, (r) => +r.tonnid) }),
+      (r) => r.karjaar, (r) => r.materjal)
+      .flatMap(([karjaar, ms]) => ms.map(([materjal, o]) => ({ karjaar, materjal, ...o })));
+  }
+
+  function renderMaterials(data) {
+    const mats = data.materjalid || {};
+    const days = Object.keys(mats).sort();
+    const sec = $('kokku-sektsioon');
+    if (!days.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const lastDay = days[days.length - 1];
+    $('mat-tana-sub').textContent = `Mis materjali igast karjäärist on toodud ${day(lastDay)} (kaalumiste ja veolehtede järgi).`;
+    groupedTable('mat-tana', sumMaterials(mats[lastDay] || []));
+
+    const all = sumMaterials(days.flatMap((k) => mats[k]));
+    const firstDay = days.find((k) => (mats[k] || []).length) || days[0];
+    const totT = d3.sum(all, (r) => r.tonnid), totN = d3.sum(all, (r) => r.koormaid);
+    $('kokku-sub').textContent = `Alates ${day(firstDay)} kuni ${day(lastDay)}: kokku ${fmtN(totN)} koormat, ${fmtT(totT)} t.`;
+    const byMat = d3.rollups(all, (v) => ({ n: d3.sum(v, (r) => r.koormaid), t: d3.sum(v, (r) => r.tonnid) }), (r) => r.materjal)
+      .map(([m, o]) => ({ m, ...o })).sort((a, b) => b.t - a.t);
+    fillTable('kokku-mat', byMat, (r) => [r.m, fmtN(r.n), fmtT(r.t)]);
+    groupedTable('kokku-karjaar', all);
+  }
+
   let lastData = null;
   function render(data) {
     lastData = data;
     showUpdated(data);
+    renderMaterials(data);
     const seis = (data.rows || []).map((r) => ({ ...r, autosid: +r.autosid, koormaid: +r.koormaid, tonnid: +r.tonnid }));
     if (!seis.length) return;
 

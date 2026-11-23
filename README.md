@@ -79,7 +79,16 @@ Waybilleri jaoks lisa alati need kaks:
 
 Edaspidi käivitub töövoog ise iga täistund. Sul ei ole vaja midagi vajutada ega kinnitada.
 
-### 6. Kui midagi ei tööta
+### 6. Materjalide ajalugu (ühekordne)
+Lehe tabel **„Kokku toodud"** liidab kokku iga päeva materjalid. Vanemate päevade täitmiseks tee nii:
+
+1. Ava **Actions** → **Uuenda andmed** → **Run workflow**.
+2. Kirjuta lahtrisse „Materjalide ajaloo täitmine alates" kuupäev, näiteks `2026-04-01`.
+3. Vajuta **Run workflow**. Käivitus võib kesta 15–30 minutit.
+
+Edaspidi lisandub iga päev automaatselt.
+
+### 7. Kui midagi ei tööta
 Ava **Actions** → viimane käivitus → **uuenda** → samm **Too andmed**. Logis on iga allika kohta rida.
 
 | Logis on | Mida teha |

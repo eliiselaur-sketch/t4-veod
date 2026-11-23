@@ -13,8 +13,9 @@ Paroolid ja sessioon tulevad AINULT keskkonnamuutujatest (GitHub Secrets):
   WAYBILLER_EMAIL, WAYBILLER_PASSWORD  – Waybilleri konto
   AUTH_STATE_FILE                      – valikuline: salvestatud sessioonifail (auth.json)
 
-Käivitus:  python scraper/fetch.py            (töötab ainult tööajal, vt ACTIVE_*)
-           python scraper/fetch.py --force    (töötab alati)
+Käivitus:  python scraper/fetch.py                       (töötab ainult tööajal, vt ACTIVE_*)
+           python scraper/fetch.py --force               (töötab alati)
+           python scraper/fetch.py --backfill 2026-10-01 (materjalide ajalugu sellest päevast eilseni)
 """
 
 from __future__ import annotations
@@ -119,12 +120,17 @@ async ({date, clientId, contractId}) => {
         d.innerHTML = r.data.content;
         const rows = [...d.querySelectorAll('.Rtable-row')].map((x) => x.innerText.replace(/\\s+/g, ' '));
         const plates = new Set();
+        const mat = {};
         let net = 0;
         rows.forEach((x) => {
           const p = x.match(/Sõiduk (\\S+)/); if (p) plates.add(p[1]);
-          const n = x.match(/Neto ([\\d.]+)/); if (n) net += +n[1];
+          const n = x.match(/Neto ([\\d.]+)/); const v = n ? +n[1] : 0; net += v;
+          const f = x.match(/Fraktsioon (.*?) (?:Transport|Bruto|Klient|Karjäär) /);
+          const name = f ? f[1].trim() : 'Määramata';
+          const m = mat[name] || (mat[name] = {koormaid: 0, tonnid: 0});
+          m.koormaid += 1; m.tonnid += v;
         });
-        res({autosid: plates.size, koormaid: rows.length, tonnid: Math.round(net * 10) / 10});
+        res({autosid: plates.size, koormaid: rows.length, tonnid: Math.round(net * 10) / 10, materjalid: mat});
       },
     });
   });
@@ -183,7 +189,8 @@ def goto_retry(page: Page, url: str) -> None:
             page.wait_for_timeout(3_000)
 
 
-def fetch_quarrymon(page: Page, site: dict, today: datetime) -> dict | None:
+def fetch_quarrymon(page: Page, site: dict, days: list[datetime]) -> dict:
+    """Logib lehele sisse ja tagastab {kuupäev: tulemus} iga küsitud päeva kohta (puuduv päev = viga)."""
     pin = env(f"{site['env']}_PIN")
     email = env(f"{site['env']}_EMAIL") or env("QM_EMAIL")
     password = env(f"{site['env']}_PASSWORD") or env("QM_PASSWORD")
@@ -192,25 +199,28 @@ def fetch_quarrymon(page: Page, site: dict, today: datetime) -> dict | None:
         if is_login_page(page):
             if not (pin or (email and password)):
                 log(f"{site['karjaar']}: sessioon aegunud ja PIN/parool puudub")
-                return None
+                return {}
             log(f"{site['karjaar']}: login sisse ({'PIN' if pin else 'e-post + parool'})")
             qm_login(page, pin, email, password)
             goto_retry(page, site["url"] + "/gross/")
             if is_login_page(page):
                 log(f"{site['karjaar']}: sisselogimine ebaõnnestus")
-                return None
-        res = page.evaluate(QM_JS, {"date": today.strftime("%d.%m.%Y"),
-                                    "clientId": site["clientId"], "contractId": site["contractId"]})
-        if not res or "error" in res:
-            log(f"{site['karjaar']}: viga {res}")
-            return None
-        log(f"{site['karjaar']}: {res}")
-        return res
+                return {}
+        out = {}
+        for day in days:
+            res = page.evaluate(QM_JS, {"date": day.strftime("%d.%m.%Y"),
+                                        "clientId": site["clientId"], "contractId": site["contractId"]})
+            if not res or "error" in res:
+                log(f"{site['karjaar']} {day:%d.%m}: viga {res}")
+                continue
+            out[day.strftime("%Y-%m-%d")] = res
+            log(f"{site['karjaar']} {day:%d.%m}: {res['autosid']} autot, {res['koormaid']} koormat, {res['tonnid']} t")
+        return out
     except PWTimeout as e:
         log(f"{site['karjaar']}: aegus ({e})")
     except Exception as e:  # noqa: BLE001
         log(f"{site['karjaar']}: viga ({e})")
-    return None
+    return {}
 
 
 # --- Waybiller ---------------------------------------------------------------
@@ -235,6 +245,10 @@ async ({start, end, dests}) => {
       plate: w.truck_reg_number || '',
       company: w.driver_company_name || '?',
       amount: (w.rows || []).reduce((s, r) => s + (+(r.accepted_amount ?? r.dispatched_amount) || 0), 0),
+      items: (w.rows || []).map((r) => ({
+        m: r.accepted_assortment_displayed_name || r.assortment_displayed_name || 'Määramata',
+        a: +(r.accepted_amount ?? r.dispatched_amount) || 0,
+      })),
     }));
 }
 """
@@ -247,39 +261,44 @@ def map_origin(name: str) -> str | None:
     return None
 
 
-def fetch_waybiller(page: Page, today: datetime) -> list[dict] | None:
+def fetch_waybiller(page: Page, days: list[datetime]) -> dict:
+    """Tagastab {kuupäev: [veoleht, ...]} iga küsitud päeva kohta."""
     email, password = env("WAYBILLER_EMAIL"), env("WAYBILLER_PASSWORD")
     try:
         page.goto(WAYBILLER_URL + "/waybills/active", wait_until="networkidle", timeout=60_000)
         if is_login_page(page):
             if not (email and password):
                 log("Waybiller: sessioon aegunud ja parool puudub")
-                return None
+                return {}
             log("Waybiller: login sisse")
             fill_login(page, email, password)
             page.goto(WAYBILLER_URL + "/waybills/active", wait_until="networkidle", timeout=60_000)
             if is_login_page(page):
                 log("Waybiller: sisselogimine ebaõnnestus (kas küsib lisakinnitust? kasuta auth.json-i)")
-                return None
-        day_start = today.replace(hour=0, minute=0, second=0, microsecond=0)
-        start = day_start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end = (day_start + timedelta(days=1) - timedelta(seconds=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        res = page.evaluate(WB_JS, {"start": start, "end": end, "dests": WAYBILLER_DESTINATIONS})
-        if isinstance(res, dict) and "error" in res:
-            log(f"Waybiller: viga {res}")
-            return None
-        log(f"Waybiller: {len(res)} T4 veolehte")
-        return res
+                return {}
+        out = {}
+        for day in days:
+            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            start = day_start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            end = (day_start + timedelta(days=1) - timedelta(seconds=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            res = page.evaluate(WB_JS, {"start": start, "end": end, "dests": WAYBILLER_DESTINATIONS})
+            if isinstance(res, dict) and "error" in res:
+                log(f"Waybiller {day:%d.%m}: viga {res}")
+                continue
+            out[day.strftime("%Y-%m-%d")] = res
+            log(f"Waybiller {day:%d.%m}: {len(res)} T4 veolehte")
+        return out
     except PWTimeout as e:
         log(f"Waybiller: aegus ({e})")
     except Exception as e:  # noqa: BLE001
         log(f"Waybiller: viga ({e})")
-    return None
+    return {}
 
 
 def summarize_waybills(waybills: list[dict]):
     per_q: dict[str, dict] = {}
     per_f: dict[tuple, dict] = {}
+    per_m: dict[str, dict] = {}
     for w in waybills:
         q = map_origin(w["origin"])
         if not q:
@@ -288,9 +307,39 @@ def summarize_waybills(waybills: list[dict]):
         a["plates"].add(w["plate"]); a["n"] += 1; a["t"] += w["amount"]
         f = per_f.setdefault((q, w["company"]), {"plates": set(), "n": 0})
         f["plates"].add(w["plate"]); f["n"] += 1
+        for it in w.get("items") or []:
+            m = per_m.setdefault(q, {}).setdefault(it["m"], {"koormaid": 0, "tonnid": 0.0})
+            m["koormaid"] += 1; m["tonnid"] += it["a"]
     q_out = {q: {"autosid": len(v["plates"]), "koormaid": v["n"], "tonnid": round(v["t"], 1)} for q, v in per_q.items()}
     f_out = [{"karjaar": q, "vedaja": c, "autosid": len(v["plates"]), "koormaid": v["n"]} for (q, c), v in per_f.items()]
-    return q_out, f_out
+    return q_out, f_out, per_m
+
+
+def clean_material(name: str) -> str:
+    """Ühtlustab materjali nime: alakriipsud tühikuteks, topelttühikud välja."""
+    return re.sub(r"\s+", " ", (name or "Määramata").replace("_", " ")).strip()
+
+
+def day_materials(day: str, qm_day: dict, wb_list: list | None) -> list[dict]:
+    """Ühe päeva materjalid karjääride kaupa. QuarryMoni karjäärid QuarryMonist, muidu Waybillerist."""
+    wb_m = summarize_waybills(wb_list)[2] if wb_list is not None else {}
+    out = []
+    for q in ALL_QUARRIES:
+        if q not in WAYBILLER_ONLY and q in qm_day:
+            mats, src = qm_day[q].get("materjalid") or {}, "QuarryMon"
+        elif wb_list is not None:
+            mats, src = wb_m.get(q, {}), ("Waybiller" if q in WAYBILLER_ONLY else "Waybiller (varu)")
+        else:
+            continue
+        merged: dict[str, dict] = {}
+        for name, v in mats.items():
+            m = merged.setdefault(clean_material(name), {"koormaid": 0, "tonnid": 0.0})
+            m["koormaid"] += v["koormaid"]; m["tonnid"] += v["tonnid"]
+        for name, v in merged.items():
+            if v["koormaid"]:
+                out.append({"karjaar": q, "materjal": name, "koormaid": v["koormaid"],
+                            "tonnid": round(v["tonnid"], 1), "allikas": src})
+    return out
 
 
 # --- Põhiloogika -------------------------------------------------------------
@@ -304,18 +353,38 @@ def load_data() -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="käivita ka väljaspool tööaega")
+    ap.add_argument("--backfill", metavar="YYYY-MM-DD",
+                    help="täida materjalide ajalugu sellest päevast kuni eilseni (tunniseise ei lisa)")
     args = ap.parse_args()
 
     now = datetime.now(TZ)
-    if not args.force and not (now.weekday() in ACTIVE_DAYS and ACTIVE_FROM_HOUR <= now.hour <= ACTIVE_TO_HOUR):
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if not args.backfill and not args.force and not (now.weekday() in ACTIVE_DAYS and ACTIVE_FROM_HOUR <= now.hour <= ACTIVE_TO_HOUR):
         log(f"Väljaspool tööaega ({now:%a %H:%M}), ei tee midagi.")
         return 0
+
+    data = load_data()
+    materjalid: dict = data.setdefault("materjalid", {})
+
+    if args.backfill:
+        first = datetime.strptime(args.backfill, "%Y-%m-%d").replace(tzinfo=TZ)
+        days = []
+        d = first
+        while d < today:
+            days.append(d)
+            d += timedelta(days=1)
+    else:
+        days = [today]
+        # päeva esimesel käivitusel loe üle ka eilne lõplik seis
+        yesterday = today - timedelta(days=1)
+        if now.strftime("%Y-%m-%d") not in materjalid:
+            days.insert(0, yesterday)
+    log(f"Päevad: {', '.join(x.strftime('%d.%m') for x in days)}")
 
     auth_file = env("AUTH_STATE_FILE")
     use_auth = auth_file and Path(auth_file).exists() and Path(auth_file).stat().st_size > 10
 
-    qm: dict[str, dict | None] = {}
-    waybills = None
+    qm: dict[str, dict] = {}
     with sync_playwright() as p:
         browser = p.chromium.launch()
         ctx = browser.new_context(
@@ -324,14 +393,30 @@ def main() -> int:
         )
         page = ctx.new_page()
         for site in QUARRYMON:
-            qm[site["karjaar"]] = fetch_quarrymon(page, site, now)
-        waybills = fetch_waybiller(page, now)
+            qm[site["karjaar"]] = fetch_quarrymon(page, site, days)
+        wb = fetch_waybiller(page, days)
         browser.close()
 
-    wb_q, wb_f = summarize_waybills(waybills) if waybills is not None else ({}, [])
+    # materjalid iga päeva kohta
+    for d in days:
+        key = d.strftime("%Y-%m-%d")
+        qm_day = {q: res[key] for q, res in qm.items() if key in res}
+        if not qm_day and key not in wb:
+            continue
+        materjalid[key] = day_materials(key, qm_day, wb.get(key))
+    data["materjalid"] = dict(sorted(materjalid.items()))
+
+    if args.backfill:
+        DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        log(f"Materjalide ajalugu täidetud: {len(days)} päeva.")
+        return 0
+
+    key = today.strftime("%Y-%m-%d")
+    waybills = wb.get(key)
+    wb_q, wb_f, _ = summarize_waybills(waybills) if waybills is not None else ({}, [], {})
 
     kell = now.strftime("%H:%M")
-    paev = now.strftime("%Y-%m-%d")
+    paev = key
     aeg = f"{paev} {kell}"
     rows, allikad = [], {}
     for q in ALL_QUARRIES:
@@ -340,7 +425,7 @@ def main() -> int:
                 continue
             v, src = wb_q.get(q, {"autosid": 0, "koormaid": 0, "tonnid": 0}), "Waybiller"
         else:
-            v, src = qm.get(q), "QuarryMon"
+            v, src = qm.get(q, {}).get(key), "QuarryMon"
             if v is None and waybills is not None:      # QuarryMon ei vastanud -> Waybilleri varuandmed
                 v, src = wb_q.get(q, {"autosid": 0, "koormaid": 0, "tonnid": 0}), "Waybiller (varu)"
             if v is None:
@@ -355,7 +440,6 @@ def main() -> int:
 
     firmad = [{"kuupaev": paev, "kell": kell, "aeg": aeg, **f} for f in wb_f]
 
-    data = load_data()
     cutoff = (now - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
     data["rows"] = [r for r in data.get("rows", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + rows
     data["firmad"] = [r for r in data.get("firmad", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + firmad

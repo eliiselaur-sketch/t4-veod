@@ -9,6 +9,10 @@ on:
         description: 'Käivita ka väljaspool tööaega'
         type: boolean
         default: true
+      backfill_from:
+        description: 'Materjalide ajaloo täitmine alates (YYYY-MM-DD). Tühi = tavaline uuendus.'
+        type: string
+        default: ''
   push:
     branches: [main]
     paths: ['docs/index.html']  # kujunduse muutmisel avaldatakse leht kohe uuesti
@@ -25,7 +29,7 @@ concurrency:
 jobs:
   uuenda:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +74,9 @@ jobs:
           WAYBILLER_EMAIL: ${{ secrets.WAYBILLER_EMAIL }}
           WAYBILLER_PASSWORD: ${{ secrets.WAYBILLER_PASSWORD }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
+          if [ -n "${{ inputs.backfill_from }}" ]; then
+            python scraper/fetch.py --backfill "${{ inputs.backfill_from }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
             python scraper/fetch.py --force
           else
             python scraper/fetch.py
