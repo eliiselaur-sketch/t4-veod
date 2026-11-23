@@ -12,6 +12,8 @@ Paroolid ja sessioon tulevad AINULT keskkonnamuutujatest (GitHub Secrets):
   QM_EMAIL, QM_PASSWORD                – valikuline ühine konto, kui lehel oma saladust pole
   WAYBILLER_EMAIL, WAYBILLER_PASSWORD  – Waybilleri konto
   AUTH_STATE_FILE                      – valikuline: salvestatud sessioonifail (auth.json)
+  DATA_PIN                             – lehe PIN/parool; andmed salvestatakse krüpteeritult
+                                         faili docs/data.enc.json (AES-256-GCM)
 
 Käivitus:  python scraper/fetch.py                       (töötab ainult tööajal, vt ACTIVE_*)
            python scraper/fetch.py --force               (töötab alati)
@@ -33,7 +35,9 @@ from playwright.sync_api import Page, TimeoutError as PWTimeout, sync_playwright
 
 TZ = ZoneInfo("Europe/Tallinn")
 ROOT = Path(__file__).resolve().parent.parent
-DATA_FILE = ROOT / "docs" / "data.json"
+DATA_FILE = ROOT / "docs" / "data.json"          # vana, krüpteerimata (ainult üleminekuks)
+ENC_FILE = ROOT / "docs" / "data.enc.json"       # krüpteeritud andmed (PIN-iga)
+PBKDF2_ITER = 600_000
 
 # Tööaeg (Tallinna aeg). Väljaspool seda skript ei tee midagi, et ei tekiks tühje seise.
 ACTIVE_DAYS = {0, 1, 2, 3, 4}          # E–R
@@ -371,10 +375,67 @@ def day_materials(day: str, qm_day: dict, wb_list: list | None) -> list[dict]:
 
 # --- Põhiloogika -------------------------------------------------------------
 
+def _derive_key(pin: str, salt: bytes, iterations: int) -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iterations)
+    return kdf.derive(pin.encode("utf-8"))
+
+
+def _pin() -> str:
+    return os.environ.get("DATA_PIN", "").strip()
+
+
 def load_data() -> dict:
+    import base64
+    pin = _pin()
+    if ENC_FILE.exists():
+        if not pin:
+            raise SystemExit("docs/data.enc.json on olemas, aga DATA_PIN saladus puudub.")
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        env = json.loads(ENC_FILE.read_text(encoding="utf-8"))
+        key = _derive_key(pin, base64.b64decode(env["salt"]), int(env["iter"]))
+        try:
+            raw = AESGCM(key).decrypt(base64.b64decode(env["iv"]), base64.b64decode(env["ct"]), None)
+        except Exception:
+            raise SystemExit("data.enc.json ei avanenud – DATA_PIN on muutunud? Kustuta docs/data.enc.json, "
+                             "siis alustatakse uue PIN-iga tühjalt (või taasta vana PIN).")
+        return json.loads(raw.decode("utf-8"))
     if DATA_FILE.exists():
         return json.loads(DATA_FILE.read_text(encoding="utf-8"))
     return {"rows": [], "firmad": []}
+
+
+def save_data(data: dict) -> None:
+    """Salvestab andmed. DATA_PIN olemasolul krüpteeritult ja eemaldab avatud data.json-i."""
+    import base64
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    pin = _pin()
+    if not pin:
+        log("HOIATUS: DATA_PIN puudub – andmed salvestatakse krüpteerimata (leht on avalik).")
+        DATA_FILE.write_bytes(raw)
+        return
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    salt = None
+    if ENC_FILE.exists():  # sama sool -> brauser saab salvestatud võtit edasi kasutada
+        try:
+            env = json.loads(ENC_FILE.read_text(encoding="utf-8"))
+            if int(env.get("iter", 0)) == PBKDF2_ITER:
+                salt = base64.b64decode(env["salt"])
+        except Exception:
+            salt = None
+    salt = salt or os.urandom(16)
+    iv = os.urandom(12)
+    key = _derive_key(pin, salt, PBKDF2_ITER)
+    ct = AESGCM(key).encrypt(iv, raw, None)
+    env = {"v": 1, "alg": "AES-256-GCM/PBKDF2-SHA256", "iter": PBKDF2_ITER,
+           "salt": base64.b64encode(salt).decode(), "iv": base64.b64encode(iv).decode(),
+           "ct": base64.b64encode(ct).decode()}
+    ENC_FILE.write_text(json.dumps(env, separators=(",", ":")), encoding="utf-8")
+    if DATA_FILE.exists():
+        DATA_FILE.unlink()
+        log("Avatud data.json eemaldatud, edaspidi ainult data.enc.json.")
 
 
 def wb_events(waybills: list[dict]) -> dict[str, list]:
@@ -523,7 +584,7 @@ def main() -> int:
     data["materjalid"] = dict(sorted(materjalid.items()))
 
     if args.backfill:
-        DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        save_data(data)
         log(f"Materjalide ajalugu täidetud: {len(days)} päeva.")
         return 0
 
@@ -575,8 +636,7 @@ def main() -> int:
         "allikad": allikad,
         "puudu": [q for q in ALL_QUARRIES if q not in allikad],
     }
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    save_data(data)
     log(f"Salvestatud {len(rows)} karjääri seis ({aeg}). Puudu: {data['viimane_kontroll']['puudu'] or 'ei midagi'}")
     return 0
 

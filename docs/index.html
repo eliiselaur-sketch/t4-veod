@@ -76,16 +76,42 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
 .t4-tag.off { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
 .t4-move { color: var(--accent); font-weight: 500; }
 .t4 td.wrap { white-space: normal; min-width: 220px; }
+body.lukus .t4 { display: none; }
+.t4-lock { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+body:not(.lukus) .t4-lock { display: none; }
+.t4-lock form { width: 100%; max-width: 340px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 28px 22px; display: flex; flex-direction: column; gap: 14px; }
+.t4-lock h1 { font-family: var(--serif); font-weight: 400; font-size: 1.6rem; margin: 0; }
+.t4-lock p { margin: 0; color: var(--muted); font-size: .92rem; }
+.t4-lock input[type=password] { font: 1.3rem/1.2 var(--sans); letter-spacing: .25em; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
+.t4-lock input[type=password]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.t4-lock label.mem { display: flex; gap: 8px; align-items: center; font-size: .92rem; color: var(--muted); }
+.t4-lock button { font: 600 1rem var(--sans); padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+.t4-lock button:disabled { opacity: .6; cursor: wait; }
+.t4-lock .err { color: var(--warn-fg); background: var(--warn-bg); padding: 8px 10px; border-radius: 8px; font-size: .92rem; }
+.t4-logout { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; font-size: .85rem; padding: 0; margin-left: auto; }
 .t4-error { padding: 14px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); }
 </style>
 </head>
-<body>
+<body class="lukus">
+<div class="t4-lock">
+  <form id="lukk" autocomplete="off">
+    <h1>T4 karjääride veod</h1>
+    <p>Sisesta PIN-kood, et andmeid näha.</p>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" aria-label="PIN-kood" required autofocus>
+    <label class="mem"><input id="mäleta" type="checkbox" checked> Jäta selles seadmes meelde</label>
+    <button id="ava" type="submit">Ava</button>
+    <div class="err" id="pinviga" hidden></div>
+  </form>
+</div>
 <div class="t4">
   <header class="t4-head">
     <div class="t4-updated" id="uuendatud" role="status">
       <span class="t4-dot" aria-hidden="true"></span>
       <span>Andmed viimati uuendatud: <b id="uuendatud-aeg">laadin…</b></span>
       <small id="uuendatud-info"></small>
+      <button type="button" class="t4-logout" id="lukusta">Lukusta</button>
     </div>
     <h1>T4 karjääride veod</h1>
     <p class="t4-lede">Seis <b id="l-aeg">—</b>. Täna on objektile vedanud <b id="l-autosid">—</b> erinevat autot <b id="l-koormaid">—</b> koormaga, kokku <b id="l-tonnid">—</b> t.</p>
@@ -443,17 +469,87 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
       (r) => [day(r.kuupaev), r.karjaar, r.kell, fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)]);
   }
 
+  // ---- PIN-kaitse: andmed on krüpteeritud (AES-256-GCM, võti PIN-ist PBKDF2-ga) ----
+  const KEY_LS = 't4-voti';
+  const b64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+  const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  let aesKey = null, keySalt = null;
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} };
+
+  async function fetchEnv() {
+    const res = await fetch('data.enc.json?t=' + Date.now(), { cache: 'no-store' });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+  async function deriveKey(pin, env) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: b64(env.salt), iterations: env.iter },
+      base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  async function decrypt(env, key) {
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(env.iv) }, key, b64(env.ct));
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
+  async function restoreKey(env) {
+    const saved = lsGet(KEY_LS); if (!saved) return null;
+    try {
+      const o = JSON.parse(saved);
+      if (o.salt !== env.salt) return null;
+      return await crypto.subtle.importKey('raw', b64(o.k), { name: 'AES-GCM' }, true, ['decrypt']);
+    } catch (e) { return null; }
+  }
+  function unlock() { document.body.classList.remove('lukus'); }
+  function lock(msg) {
+    aesKey = null; keySalt = null; lastData = null; lsSet(KEY_LS, null);
+    document.body.classList.add('lukus');
+    $('pin').value = ''; $('pinviga').hidden = !msg; if (msg) $('pinviga').textContent = msg;
+    setTimeout(() => $('pin').focus(), 0);
+  }
+
   async function load() {
     try {
-      const res = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      render(await res.json());
+      const env = await fetchEnv();
+      if (!env) { lock('Krüpteeritud andmefaili veel pole. Proovi mõne minuti pärast uuesti.'); return; }
+      if (!aesKey || keySalt !== env.salt) {
+        aesKey = await restoreKey(env); keySalt = aesKey ? env.salt : null;
+        if (!aesKey) { if (!document.body.classList.contains('lukus')) lock('PIN on muutunud – sisesta uus PIN.'); else lock(); return; }
+      }
+      let data;
+      try { data = await decrypt(env, aesKey); } catch (e) { lock('PIN on muutunud – sisesta uus PIN.'); return; }
+      unlock();
+      render(data);
       $('viga').hidden = true;
     } catch (e) {
       $('viga').hidden = false;
       $('viga').textContent = 'Andmeid ei õnnestunud laadida (' + e.message + '). Proovin uuesti 2 minuti pärast.';
     }
   }
+
+  $('lukk').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const pin = $('pin').value.trim(); if (!pin) return;
+    $('ava').disabled = true; $('ava').textContent = 'Kontrollin…'; $('pinviga').hidden = true;
+    try {
+      const env = await fetchEnv();
+      if (!env) throw new Error('Krüpteeritud andmefaili veel pole.');
+      const key = await deriveKey(pin, env);
+      let data;
+      try { data = await decrypt(env, key); } catch (e) { throw new Error('Vale PIN-kood.'); }
+      aesKey = key; keySalt = env.salt;
+      if ($('mäleta').checked) lsSet(KEY_LS, JSON.stringify({ salt: env.salt, k: toB64(await crypto.subtle.exportKey('raw', key)) }));
+      else lsSet(KEY_LS, null);
+      unlock(); render(data); $('viga').hidden = true;
+    } catch (e) {
+      $('pinviga').hidden = false; $('pinviga').textContent = e.message;
+      $('pin').select();
+    } finally {
+      $('ava').disabled = false; $('ava').textContent = 'Ava';
+    }
+  });
+  $('lukusta').addEventListener('click', () => lock());
+
   showTab();
   load();
   setInterval(load, 2 * 60 * 1000);

@@ -73,6 +73,7 @@ jobs:
           JAAKNA_PASSWORD: ${{ secrets.JAAKNA_PASSWORD }}
           WAYBILLER_EMAIL: ${{ secrets.WAYBILLER_EMAIL }}
           WAYBILLER_PASSWORD: ${{ secrets.WAYBILLER_PASSWORD }}
+          DATA_PIN: ${{ secrets.DATA_PIN }}
         run: |
           if [ -n "${{ inputs.backfill_from }}" ]; then
             python scraper/fetch.py --backfill "${{ inputs.backfill_from }}"
@@ -82,16 +83,16 @@ jobs:
             python scraper/fetch.py
           fi
 
-      - name: Salvesta data.json repositooriumisse
+      - name: Salvesta andmed repositooriumisse
         if: github.event_name != 'push'
         run: |
           rm -f "$RUNNER_TEMP/auth.json"
-          if git diff --quiet -- docs/data.json; then
+          git add -A docs
+          if git diff --cached --quiet; then
             echo "Andmed ei muutunud."
           else
             git config user.name "t4-andmed[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs/data.json
             git commit -m "Andmed $(TZ=Europe/Tallinn date '+%d.%m.%Y %H:%M')"
             git pull --rebase --autostash
             git push
