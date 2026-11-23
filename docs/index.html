@@ -56,6 +56,26 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
 .t4-small th, .t4-small td { padding: 6px 12px; }
 .t4-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .t4-two h3 { font-size: .9rem; font-weight: 600; margin: 0 0 6px; color: var(--muted); }
+.t4-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-top: -8px; }
+.t4-tabs a { padding: 8px 14px; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; font-weight: 500; }
+.t4-tabs a[aria-current=page] { color: var(--fg); border-bottom-color: var(--accent); }
+.t4-view { display: flex; flex-direction: column; gap: 32px; }
+.t4-view[hidden] { display: none; }
+.t4-qgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.t4-q { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.t4-q h3 { margin: 0; font-size: 1rem; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.t4-q h3 small { font-weight: 400; color: var(--muted); font-size: .8rem; }
+.t4-q .t4-num { font-size: 2rem; }
+.t4-plates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: .88rem; }
+.t4-plates li { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
+.t4-plates b { font-variant-numeric: tabular-nums; }
+.t4-plates span { color: var(--muted); text-align: right; }
+.t4-q details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+.t4-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .75rem; font-weight: 500; }
+.t4-tag.on { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.t4-tag.off { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+.t4-move { color: var(--accent); font-weight: 500; }
+.t4 td.wrap { white-space: normal; min-width: 220px; }
 .t4-error { padding: 14px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); }
 </style>
 </head>
@@ -71,19 +91,27 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     <p class="t4-lede">Seis <b id="l-aeg">—</b>. Täna on objektile vedanud <b id="l-autosid">—</b> erinevat autot <b id="l-koormaid">—</b> koormaga, kokku <b id="l-tonnid">—</b> t.</p>
   </header>
 
+  <nav class="t4-tabs" aria-label="Vaated">
+    <a href="#ulevaade" id="tab-ulevaade" aria-current="page">Ülevaade</a>
+    <a href="#autod" id="tab-autod">Autod</a>
+  </nav>
+
   <div id="viga" class="t4-error" hidden></div>
 
+  <div class="t4-view" id="vaade-ulevaade">
+
   <section class="t4-kpis" aria-label="Tänane kokkuvõte">
-    <div class="t4-card"><span class="t4-label">Autosid (unikaalsed numbrid)</span><span class="t4-num" id="k-autosid">—</span></div>
+    <div class="t4-card"><span class="t4-label">Praegu veab</span><span class="t4-num" id="k-veab">—</span><span class="t4-unit">autot</span></div>
+    <div class="t4-card"><span class="t4-label">Täna käinud (erinevad autod)</span><span class="t4-num" id="k-autosid">—</span></div>
     <div class="t4-card"><span class="t4-label">Koormaid</span><span class="t4-num" id="k-koormaid">—</span></div>
     <div class="t4-card"><span class="t4-label">Kokku veetud</span><span class="t4-num" id="k-tonnid">—</span><span class="t4-unit">tonni</span></div>
   </section>
 
   <section>
     <h2>Karjääride kaupa</h2>
-    <p class="t4-sub">Viimane seis tänase päeva algusest. Autode arv on unikaalsete registrinumbrite arv.</p>
+    <p class="t4-sub">„Praegu veab" = autod, mis on hiljuti koorma võtnud. „Täna käinud" = kõik erinevad autod päeva algusest. Iga auto kohta vaata vahelehte <a href="#autod">Autod</a>.</p>
     <div class="t4-wrap"><table>
-      <thead><tr><th>Karjäär</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+      <thead><tr><th>Karjäär</th><th>Praegu veab</th><th>Täna käinud</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
       <tbody id="tabel"></tbody>
     </table></div>
   </section>
@@ -151,7 +179,44 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     </div>
   </section>
 
-  <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 8–19 iga tunni järel; leht laeb uued andmed ise iga 5 minuti tagant. Kui mõni tund puudub, ei õnnestunud tol korral andmeid kätte saada.</p>
+  </div>
+
+  <div class="t4-view" id="vaade-autod" hidden>
+    <section>
+      <h2>Autod karjääride kaupa</h2>
+      <p class="t4-sub" id="autod-sub">Kes praegu veab ja kes on täna lõpetanud.</p>
+      <div class="t4-qgrid" id="autod-karjaarid"></div>
+    </section>
+
+    <section>
+      <h2>Ümbertõstmised täna</h2>
+      <p class="t4-sub">Auto, mis võttis koorma teisest karjäärist kui eelmise. Kellaaeg = esimene koorem uues karjääris.</p>
+      <div class="t4-wrap"><table>
+        <thead><tr><th>Kell</th><th class="l">Auto</th><th class="l">Vedaja</th><th class="l">Kust</th><th class="l">Kuhu</th></tr></thead>
+        <tbody id="liikumised"></tbody>
+      </table></div>
+    </section>
+
+    <section>
+      <h2>Kõik autod täna</h2>
+      <p class="t4-sub">Iga auto tänane käik: millal alustas, millal võttis viimase koorma ja kus vahepeal käis.</p>
+      <div class="t4-wrap"><table>
+        <thead><tr><th>Auto</th><th class="l">Vedaja</th><th class="l">Olek</th><th>Koormaid</th><th>Tonnid</th><th>Esimene</th><th>Viimane</th><th class="l">Teekond</th></tr></thead>
+        <tbody id="koik-autod"></tbody>
+      </table></div>
+    </section>
+
+    <section class="t4-small">
+      <h2>Päevade kaupa</h2>
+      <p class="t4-sub">Mitu erinevat autot igal päeval objektile vedas (iga auto loetud üks kord) ja mitu korda autosid ümber tõsteti.</p>
+      <div class="t4-wrap"><table>
+        <thead id="paevad-autod-head"></thead>
+        <tbody id="paevad-autod"></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 8–19 iga 10 minuti tagant; leht laeb uued andmed ise iga 2 minuti järel. „Praegu veab" tähendab, et auto viimasest koormast pole möödas rohkem kui umbes poolteist tema tavalist ringiaega (vähemalt 45, kõige rohkem 120 minutit).</p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
@@ -188,7 +253,7 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     const ageMin = Math.round((Date.now() - t.getTime()) / 60000);
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Tallinn' }));
     const workTime = now.getDay() >= 1 && now.getDay() <= 5 && now.getHours() >= 9 && now.getHours() <= 19;
-    const stale = workTime && ageMin > 120;
+    const stale = workTime && ageMin > 40;
     box.classList.toggle('stale', stale);
     const puudu = (data.viimane_kontroll && data.viimane_kontroll.puudu) || [];
     let info = ageMin < 60 ? `${ageMin} min tagasi` : `${Math.floor(ageMin / 60)} h ${ageMin % 60} min tagasi`;
@@ -268,6 +333,67 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     groupedTable('kokku-karjaar', all);
   }
 
+  function el(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    Object.entries(props || {}).forEach(([k, v]) => { if (k === 'class') e.className = v; else e.setAttribute(k, v); });
+    kids.flat().forEach((c) => e.append(c instanceof Node ? c : document.createTextNode(c ?? '')));
+    return e;
+  }
+
+  function renderAutod(data, A) {
+    const grid = $('autod-karjaarid');
+    grid.replaceChildren();
+    if (!A) {
+      $('autod-sub').textContent = 'Autode andmed tulevad järgmise uuendusega.';
+      ['liikumised', 'koik-autod'].forEach((id) => $(id).replaceChildren());
+    } else {
+      $('autod-sub').textContent = `Seis ${A.aeg.slice(11)}: praegu veab ${A.veab} autot, täna on käinud ${A.unikaalseid} erinevat autot, ümber tõstetud ${A.liikumised.length} korda.`;
+      Object.entries(A.karjaarid).filter(([, v]) => v.kaisid > 0).sort((a, b) => b[1].veab - a[1].veab || b[1].kaisid - a[1].kaisid).forEach(([q, v]) => {
+        const here = A.autod.filter((a) => a.karjaar === q);
+        const on = here.filter((a) => a.staatus === 'veab').sort((a, b) => d3.descending(a.viimane, b.viimane));
+        const off = here.filter((a) => a.staatus !== 'veab').sort((a, b) => d3.descending(a.viimane, b.viimane));
+        const moved = A.autod.filter((a) => a.karjaar !== q && a.etapid.some((s) => s.karjaar === q));
+        const li = (a, extra) => el('li', {}, el('b', {}, a.nr), el('span', {}, `${a.vedaja ? a.vedaja + ' · ' : ''}${extra}`));
+        const card = el('div', { class: 't4-q' },
+          el('h3', {}, q, el('small', {}, `täna käinud ${v.kaisid}`)),
+          el('div', {}, el('span', { class: 't4-num' }, String(v.veab)), ' ', el('span', { class: 't4-unit' }, 'praegu veab')),
+          el('ul', { class: 't4-plates' }, on.map((a) => li(a, `${a.koormaid} k · viimane ${a.viimane}`))));
+        if (off.length) card.append(el('details', {}, el('summary', {}, `Lõpetanud ${off.length}`),
+          el('ul', { class: 't4-plates' }, off.map((a) => li(a, `${a.koormaid} k · viimane ${a.viimane}`)))));
+        if (moved.length) card.append(el('details', {}, el('summary', {}, `Tõstetud siit ära ${moved.length}`),
+          el('ul', { class: 't4-plates' }, moved.map((a) => li(a, `nüüd ${a.karjaar}`)))));
+        grid.append(card);
+      });
+      const L = A.liikumised.slice().sort((a, b) => d3.descending(a.kell, b.kell));
+      fillTable('liikumised', L.length ? L : [{ kell: '', nr: 'Täna pole ühtegi autot ümber tõstetud', vedaja: '', kust: '', kuhu: '' }],
+        (m) => [m.kell, m.nr, m.vedaja, m.kust, m.kuhu]);
+      const tb = $('koik-autod'); tb.replaceChildren();
+      A.autod.forEach((a) => {
+        const route = a.etapid.map((s) => `${s.karjaar} ${s.alates}${s.kuni !== s.alates ? '–' + s.kuni : ''} (${s.koormaid})`).join(' → ');
+        tb.append(el('tr', {},
+          el('td', {}, el('b', {}, a.nr)), el('td', { class: 'l' }, a.vedaja),
+          el('td', { class: 'l' }, el('span', { class: 't4-tag ' + (a.staatus === 'veab' ? 'on' : 'off') }, a.staatus === 'veab' ? 'veab' : 'lõpetanud')),
+          el('td', {}, fmtN(a.koormaid)), el('td', {}, fmtT(a.tonnid)), el('td', {}, a.esimene), el('td', {}, a.viimane),
+          el('td', { class: 'l wrap' }, route)));
+      });
+    }
+    const P = data.paevad_autod || {};
+    const qs = ALLQ.filter((q) => Object.values(P).some((p) => (p.karjaarid || {})[q]));
+    $('paevad-autod-head').replaceChildren(el('tr', {}, el('th', {}, 'Päev'), el('th', {}, 'Erinevaid autosid'), qs.map((q) => el('th', {}, q)), el('th', {}, 'Ümbertõstmisi')));
+    fillTable('paevad-autod', Object.entries(P).sort((a, b) => d3.descending(a[0], b[0])),
+      ([d, p]) => [day(d), fmtN(p.unikaalseid), ...qs.map((q) => fmtN((p.karjaarid || {})[q] || 0)), fmtN(p.liikumisi || 0)]);
+  }
+  const ALLQ = ['Tika 2', 'Viruküla', 'Jaakna II', 'Orava', 'Harku', 'Ruukivi'];
+
+  function showTab() {
+    const autod = location.hash === '#autod';
+    $('vaade-ulevaade').hidden = autod; $('vaade-autod').hidden = !autod;
+    $('tab-ulevaade').toggleAttribute('aria-current', !autod); if (!autod) $('tab-ulevaade').setAttribute('aria-current', 'page');
+    $('tab-autod').toggleAttribute('aria-current', autod); if (autod) $('tab-autod').setAttribute('aria-current', 'page');
+    if (lastData) render(lastData);
+  }
+  window.addEventListener('hashchange', showTab);
+
   let lastData = null;
   function render(data) {
     lastData = data;
@@ -282,10 +408,16 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     const [d0, k0] = lastAeg.split(' ');
     txt('l-aeg', `${day(d0)} kell ${k0}`);
     txt('l-autosid', fmtN(kokku.autosid)); txt('l-koormaid', fmtN(kokku.koormaid)); txt('l-tonnid', fmtT(kokku.tonnid));
-    txt('k-autosid', fmtN(kokku.autosid)); txt('k-koormaid', fmtN(kokku.koormaid)); txt('k-tonnid', fmtT(kokku.tonnid));
+    const A = data.autod && data.autod.kuupaev === d0 ? data.autod : null;
+    const unik = A ? A.unikaalseid : kokku.autosid;
+    txt('l-autosid', fmtN(unik));
+    txt('k-autosid', fmtN(unik)); txt('k-koormaid', fmtN(kokku.koormaid)); txt('k-tonnid', fmtT(kokku.tonnid));
+    txt('k-veab', A ? fmtN(A.veab) : '—');
 
-    fillTable('tabel', viimane, (r) => [r.allikas && r.allikas.includes('varu') ? [r.karjaar, 'Waybilleri järgi'] : r.karjaar, fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)],
+    fillTable('tabel', viimane, (r) => [r.allikas && r.allikas.includes('varu') ? [r.karjaar, 'Waybilleri järgi'] : r.karjaar,
+      A ? fmtN((A.karjaarid[r.karjaar] || {}).veab || 0) : '—', fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)],
       (r) => r.koormaid ? null : 't4-zero');
+    renderAutod(data, A);
 
     const firmad = (data.firmad || []);
     const lastF = d3.max(firmad, (r) => r.aeg);
@@ -294,7 +426,9 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
       (r) => [r.karjaar, r.vedaja, fmtN(+r.autosid), fmtN(+r.koormaid)]);
 
     const lastDay = d3.max(seis, (r) => r.kuupaev);
-    const tunnid = d3.rollups(seis.filter((r) => r.kuupaev === lastDay), (v) => d3.sum(v, (r) => r.tonnid), (r) => r.kell)
+    const today = seis.filter((r) => r.kuupaev === lastDay);
+    const lastPerHour = d3.rollups(today, (v) => d3.max(v, (r) => r.kell), (r) => r.kell.slice(0, 2)).map(([, k]) => k);
+    const tunnid = d3.rollups(today.filter((r) => lastPerHour.includes(r.kell)), (v) => d3.sum(v, (r) => r.tonnid), (r) => r.kell)
       .map(([kell, tonnid]) => ({ kell, tonnid })).sort((a, b) => d3.ascending(a.kell, b.kell));
     drawChart($('graafik'), tunnid);
 
@@ -315,11 +449,12 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
       $('viga').hidden = true;
     } catch (e) {
       $('viga').hidden = false;
-      $('viga').textContent = 'Andmeid ei õnnestunud laadida (' + e.message + '). Proovin uuesti 5 minuti pärast.';
+      $('viga').textContent = 'Andmeid ei õnnestunud laadida (' + e.message + '). Proovin uuesti 2 minuti pärast.';
     }
   }
+  showTab();
   load();
-  setInterval(load, 5 * 60 * 1000);
+  setInterval(load, 2 * 60 * 1000);
   setInterval(() => lastData && showUpdated(lastData), 60 * 1000);
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => lastData && render(lastData), 200); });
 })();

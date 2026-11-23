@@ -2,7 +2,7 @@ name: Uuenda andmed
 
 on:
   schedule:
-    - cron: '0 * * * *'        # iga täistund (UTC); skript ise töötab ainult E–R kell 8–19 Tallinna aja järgi
+    - cron: '*/10 * * * *'     # iga 10 minuti tagant; skript ise töötab ainult E–R kell 8–19 Tallinna aja järgi
   workflow_dispatch:            # käsitsi käivitamine: Actions -> Uuenda andmed -> Run workflow
     inputs:
       force:

@@ -121,6 +121,7 @@ async ({date, clientId, contractId}) => {
         const rows = [...d.querySelectorAll('.Rtable-row')].map((x) => x.innerText.replace(/\\s+/g, ' '));
         const plates = new Set();
         const mat = {};
+        const events = [];
         let net = 0;
         rows.forEach((x) => {
           const p = x.match(/Sõiduk (\\S+)/); if (p) plates.add(p[1]);
@@ -129,8 +130,10 @@ async ({date, clientId, contractId}) => {
           const name = f ? f[1].trim() : 'Määramata';
           const m = mat[name] || (mat[name] = {koormaid: 0, tonnid: 0});
           m.koormaid += 1; m.tonnid += v;
+          const tm = x.match(/Date \\d\\d\\.\\d\\d\\.\\d\\d (\\d\\d:\\d\\d)/);
+          if (p) events.push({nr: p[1], kell: tm ? tm[1] : null, materjal: name, t: v});
         });
-        res({autosid: plates.size, koormaid: rows.length, tonnid: Math.round(net * 10) / 10, materjalid: mat});
+        res({autosid: plates.size, koormaid: rows.length, tonnid: Math.round(net * 10) / 10, materjalid: mat, events});
       },
     });
   });
@@ -243,6 +246,7 @@ async ({start, end, dests}) => {
     .map((w) => ({
       origin: w.origin_name || '',
       plate: w.truck_reg_number || '',
+      ts: w.dispatcher_timestamp || null,
       company: w.driver_company_name || '?',
       amount: (w.rows || []).reduce((s, r) => s + (+(r.accepted_amount ?? r.dispatched_amount) || 0), 0),
       items: (w.rows || []).map((r) => ({
@@ -350,6 +354,95 @@ def load_data() -> dict:
     return {"rows": [], "firmad": []}
 
 
+def wb_events(waybills: list[dict]) -> dict[str, list]:
+    """Waybilleri veolehed -> {karjäär: [{nr, kell, vedaja, materjal, t}]}"""
+    out: dict[str, list] = {}
+    for w in waybills:
+        q = map_origin(w["origin"])
+        if not q or not w.get("plate"):
+            continue
+        kell = None
+        if w.get("ts"):
+            try:
+                kell = datetime.fromisoformat(w["ts"].replace("Z", "+00:00")).astimezone(TZ).strftime("%H:%M")
+            except ValueError:
+                pass
+        items = w.get("items") or [{"m": "Määramata", "a": w.get("amount", 0)}]
+        out.setdefault(q, []).append({"nr": w["plate"], "kell": kell, "vedaja": w.get("company") or "?",
+                                      "materjal": clean_material(items[0]["m"]), "t": w.get("amount", 0)})
+    return out
+
+
+def norm_plate(nr: str) -> str:
+    return re.sub(r"[^0-9A-ZÕÄÖÜŠŽ]", "", (nr or "").upper())
+
+
+def analyse_trucks(now: datetime, qm_today: dict, wb_list: list | None) -> dict:
+    """Iga auto tänane käik: millises karjääris, kas veab veel, kas tõsteti ümber."""
+    wb_ev = wb_events(wb_list) if wb_list is not None else {}
+    carrier = {}
+    for evs in wb_ev.values():
+        for e in evs:
+            carrier[norm_plate(e["nr"])] = e["vedaja"]
+    events = []
+    for q in ALL_QUARRIES:
+        if q not in WAYBILLER_ONLY and q in qm_today:
+            src = [dict(e, karjaar=q) for e in (qm_today[q].get("events") or [])]
+        else:
+            src = [dict(e, karjaar=q) for e in wb_ev.get(q, [])]
+        events += [e for e in src if e.get("kell")]
+    now_min = now.hour * 60 + now.minute
+    to_min = lambda k: int(k[:2]) * 60 + int(k[3:5])  # noqa: E731
+    by_plate: dict[str, list] = {}
+    for e in events:
+        by_plate.setdefault(norm_plate(e["nr"]), []).append(e)
+    autod, liikumised = [], []
+    for key, evs in by_plate.items():
+        evs.sort(key=lambda e: e["kell"])
+        mins = [to_min(e["kell"]) for e in evs]
+        gaps = sorted(b - a for a, b in zip(mins, mins[1:]) if b > a)
+        tsykkel = gaps[len(gaps) // 2] if gaps else None
+        piir = min(max(int((tsykkel or 60) * 1.5), 45), 120)   # kaua võib koormate vahe olla, et auto loetakse vedavaks
+        viimane = mins[-1]
+        staatus = "veab" if now_min - viimane <= piir else "lõpetanud"
+        etapid = []
+        for e in evs:
+            if etapid and etapid[-1]["karjaar"] == e["karjaar"]:
+                etapid[-1]["kuni"] = e["kell"]; etapid[-1]["koormaid"] += 1
+            else:
+                if etapid:
+                    liikumised.append({"nr": evs[0]["nr"], "kell": e["kell"], "kust": etapid[-1]["karjaar"],
+                                       "kuhu": e["karjaar"], "vedaja": carrier.get(key, "")})
+                etapid.append({"karjaar": e["karjaar"], "alates": e["kell"], "kuni": e["kell"], "koormaid": 1})
+        autod.append({
+            "nr": evs[0]["nr"], "vedaja": carrier.get(key, ""), "karjaar": evs[-1]["karjaar"],
+            "staatus": staatus, "koormaid": len(evs), "tonnid": round(sum(e.get("t") or 0 for e in evs), 1),
+            "esimene": evs[0]["kell"], "viimane": evs[-1]["kell"], "tsykkel_min": tsykkel, "piir_min": piir,
+            "materjal": evs[-1].get("materjal", ""), "etapid": etapid,
+        })
+    autod.sort(key=lambda a: (a["staatus"] != "veab", a["karjaar"], a["nr"]))
+    liikumised.sort(key=lambda m: m["kell"])
+    karjaarid = {}
+    for q in ALL_QUARRIES:
+        kaisid = {norm_plate(a["nr"]) for a in autod if any(s["karjaar"] == q for s in a["etapid"])}
+        karjaarid[q] = {"veab": sum(1 for a in autod if a["karjaar"] == q and a["staatus"] == "veab"),
+                        "kaisid": len(kaisid)}
+    return {"kuupaev": now.strftime("%Y-%m-%d"), "aeg": now.strftime("%Y-%m-%d %H:%M"),
+            "unikaalseid": len(autod), "veab": sum(1 for a in autod if a["staatus"] == "veab"),
+            "karjaarid": karjaarid, "autod": autod, "liikumised": liikumised}
+
+
+def thin_rows(rows: list[dict], today: str, key) -> list[dict]:
+    """Tänased seisud jäävad kõik alles, varasematest päevadest ainult iga tunni viimane seis."""
+    last_in_hour: dict[tuple, str] = {}
+    for r in rows:
+        if r["kuupaev"] != today:
+            h = (r["kuupaev"], r["kell"][:2])
+            if r["kell"] > last_in_hour.get(h, ""):
+                last_in_hour[h] = r["kell"]
+    return [r for r in rows if r["kuupaev"] == today or last_in_hour.get((r["kuupaev"], r["kell"][:2])) == r["kell"]]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="käivita ka väljaspool tööaega")
@@ -434,6 +527,11 @@ def main() -> int:
                      "autosid": v["autosid"], "koormaid": v["koormaid"], "tonnid": v["tonnid"]})
         allikad[q] = src
 
+    qm_today = {q: res[key] for q, res in qm.items() if key in res}
+    autod = analyse_trucks(now, qm_today, waybills)
+    for r in rows:
+        r["veab"] = autod["karjaarid"].get(r["karjaar"], {}).get("veab", 0)
+
     if not rows:
         log("Ühestki allikast andmeid ei tulnud – data.json jääb muutmata.")
         return 1
@@ -441,8 +539,13 @@ def main() -> int:
     firmad = [{"kuupaev": paev, "kell": kell, "aeg": aeg, **f} for f in wb_f]
 
     cutoff = (now - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
-    data["rows"] = [r for r in data.get("rows", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + rows
-    data["firmad"] = [r for r in data.get("firmad", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + firmad
+    data["rows"] = thin_rows([r for r in data.get("rows", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + rows, paev, None)
+    data["firmad"] = thin_rows([r for r in data.get("firmad", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + firmad, paev, None)
+    data["autod"] = autod
+    paevad = data.setdefault("paevad_autod", {})
+    paevad[paev] = {"unikaalseid": autod["unikaalseid"], "liikumisi": len(autod["liikumised"]),
+                    "karjaarid": {q: v["kaisid"] for q, v in autod["karjaarid"].items() if v["kaisid"]},
+                    "aeg": kell}
     data["uuendatud"] = now.isoformat(timespec="seconds")
     data["viimane_kontroll"] = {
         "aeg": aeg,
