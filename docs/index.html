@@ -307,7 +307,9 @@ td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
     fillTable(id, out, (r) => r.cells, (r) => r.cls);
   }
 
+  const isAsphalt = (m) => /asfalt|^\s*(AC|SMA|AB|PA)\s*\d/i.test(m || '');
   function sumMaterials(list) {
+    list = list.filter((r) => !isAsphalt(r.materjal));
     return d3.rollups(list, (v) => ({ koormaid: d3.sum(v, (r) => +r.koormaid), tonnid: d3.sum(v, (r) => +r.tonnid) }),
       (r) => r.karjaar, (r) => r.materjal)
       .flatMap(([karjaar, ms]) => ms.map(([materjal, o]) => ({ karjaar, materjal, ...o })));

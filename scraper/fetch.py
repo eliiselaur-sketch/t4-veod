@@ -258,6 +258,26 @@ async ({start, end, dests}) => {
 """
 
 
+ASPHALT_RX = re.compile(r"asfalt|^\s*(AC|SMA|AB|PA)\s*\d", re.I)
+
+
+def is_asphalt(material: str) -> bool:
+    """Asfaltsegud (nt „AC 16 surf", „SMA 11") jäetakse kõikjalt välja."""
+    return bool(ASPHALT_RX.search(material or ""))
+
+
+def drop_asphalt(waybills: list[dict]) -> list[dict]:
+    out = []
+    for w in waybills:
+        items = [it for it in (w.get("items") or []) if not is_asphalt(it.get("m", ""))]
+        if w.get("items") and not items:
+            continue                      # terve veoleht oli asfalt
+        if w.get("items"):
+            w = dict(w, items=items, amount=sum(it["a"] for it in items))
+        out.append(w)
+    return out
+
+
 def map_origin(name: str) -> str | None:
     for rx, karjaar in ORIGIN_RULES:
         if rx.search(name):
@@ -289,8 +309,9 @@ def fetch_waybiller(page: Page, days: list[datetime]) -> dict:
             if isinstance(res, dict) and "error" in res:
                 log(f"Waybiller {day:%d.%m}: viga {res}")
                 continue
+            res = drop_asphalt(res)
             out[day.strftime("%Y-%m-%d")] = res
-            log(f"Waybiller {day:%d.%m}: {len(res)} T4 veolehte")
+            log(f"Waybiller {day:%d.%m}: {len(res)} T4 veolehte (asfaldita)")
         return out
     except PWTimeout as e:
         log(f"Waybiller: aegus ({e})")
@@ -337,6 +358,8 @@ def day_materials(day: str, qm_day: dict, wb_list: list | None) -> list[dict]:
             continue
         merged: dict[str, dict] = {}
         for name, v in mats.items():
+            if is_asphalt(name):
+                continue
             m = merged.setdefault(clean_material(name), {"koormaid": 0, "tonnid": 0.0})
             m["koormaid"] += v["koormaid"]; m["tonnid"] += v["tonnid"]
         for name, v in merged.items():
