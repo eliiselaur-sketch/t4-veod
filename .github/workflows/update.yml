@@ -58,6 +58,9 @@ jobs:
         env:
           QM_EMAIL: ${{ secrets.QM_EMAIL }}
           QM_PASSWORD: ${{ secrets.QM_PASSWORD }}
+          TIKA_PIN: ${{ secrets.TIKA_PIN }}
+          VIRUKULA_PIN: ${{ secrets.VIRUKULA_PIN }}
+          JAAKNA_PIN: ${{ secrets.JAAKNA_PIN }}
           TIKA_EMAIL: ${{ secrets.TIKA_EMAIL }}
           TIKA_PASSWORD: ${{ secrets.TIKA_PASSWORD }}
           VIRUKULA_EMAIL: ${{ secrets.VIRUKULA_EMAIL }}

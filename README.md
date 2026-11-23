@@ -49,20 +49,20 @@ Paroolid ei ole koodis. Need on GitHubi krüpteeritud saladustes, mida keegi ei 
 2. Vajuta **New repository secret**.
 3. Lisa iga saladus eraldi: nimi täpselt nagu tabelis, väärtus sinu andmed.
 
+Iga QuarryMoni lehe jaoks lisa **kas PIN-kood või e-post ja parool**, olenevalt sellest, kuidas sa sellele lehele sisse logid:
+
+| Leht | PIN-koodiga | E-posti ja parooliga |
+|---|---|---|
+| Tika (maa.verston.ee) | `TIKA_PIN` | `TIKA_EMAIL` + `TIKA_PASSWORD` |
+| Viruküla (marina.almic.ee) | `VIRUKULA_PIN` | `VIRUKULA_EMAIL` + `VIRUKULA_PASSWORD` |
+| Jaakna (kiiusoon.devplesk.almic.ee) | `JAAKNA_PIN` | `JAAKNA_EMAIL` + `JAAKNA_PASSWORD` |
+
+Waybilleri jaoks lisa alati need kaks:
+
 | Nimi | Väärtus |
 |---|---|
-| `QM_EMAIL` | QuarryMoni sisselogimise e-post |
-| `QM_PASSWORD` | QuarryMoni parool |
 | `WAYBILLER_EMAIL` | Waybilleri e-post |
 | `WAYBILLER_PASSWORD` | Waybilleri parool |
-
-Kui mõnel QuarryMoni lehel on **teine konto**, lisa sellele eraldi paar. Neid kasutatakse ühise paari asemel.
-
-| Leht | Saladused |
-|---|---|
-| Tika (maa.verston.ee) | `TIKA_EMAIL`, `TIKA_PASSWORD` |
-| Viruküla (marina.almic.ee) | `VIRUKULA_EMAIL`, `VIRUKULA_PASSWORD` |
-| Jaakna (kiiusoon.devplesk.almic.ee) | `JAAKNA_EMAIL`, `JAAKNA_PASSWORD` |
 
 ### 4. Lülita avalik veebilink sisse (GitHub Pages)
 1. Ava **Settings** → **Pages**.

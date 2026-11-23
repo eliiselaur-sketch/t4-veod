@@ -5,10 +5,11 @@ Logib sisse QuarryMoni (Almic) lehtedele ja Waybillerisse, loeb tänase päeva
 kaalumised / veolehed ning lisab uue seisu faili docs/data.json.
 
 Paroolid ja sessioon tulevad AINULT keskkonnamuutujatest (GitHub Secrets):
-  QM_EMAIL, QM_PASSWORD                – ühine QuarryMoni konto (kõik 3 lehte)
-  TIKA_EMAIL / TIKA_PASSWORD           – valikuline, kui Tika lehel on teine konto
-  VIRUKULA_EMAIL / VIRUKULA_PASSWORD   – valikuline
-  JAAKNA_EMAIL / JAAKNA_PASSWORD       – valikuline
+  Iga QuarryMoni lehe kohta kas PIN-kood VÕI e-post + parool:
+  TIKA_PIN      või TIKA_EMAIL + TIKA_PASSWORD          (maa.verston.ee)
+  VIRUKULA_PIN  või VIRUKULA_EMAIL + VIRUKULA_PASSWORD  (marina.almic.ee)
+  JAAKNA_PIN    või JAAKNA_EMAIL + JAAKNA_PASSWORD      (kiiusoon.devplesk.almic.ee)
+  QM_EMAIL, QM_PASSWORD                – valikuline ühine konto, kui lehel oma saladust pole
   WAYBILLER_EMAIL, WAYBILLER_PASSWORD  – Waybilleri konto
   AUTH_STATE_FILE                      – valikuline: salvestatud sessioonifail (auth.json)
 
@@ -131,17 +132,45 @@ async ({date, clientId, contractId}) => {
 """
 
 
+def qm_login(page: Page, pin: str | None, email: str | None, password: str | None) -> None:
+    """QuarryMoni sisselogimine: PIN-koodiga (numbriklahvid) või e-posti ja parooliga."""
+    toggle = page.locator(".tabs-nav.login-pin label").first
+    if pin:
+        pad = page.locator(".login-by-pin .pad").first
+        if not pad.is_visible() and toggle.count():
+            toggle.click()
+        pad.wait_for(state="visible", timeout=20_000)
+        for digit in pin:
+            page.locator(f'.login-by-pin .pad[data-num="{digit}"]').first.click()
+            page.wait_for_timeout(150)
+        page.locator('.login-by-pin [data-action="pinLogin"]').first.click()
+    else:
+        user = page.locator("input[name=email]").first
+        if not user.is_visible() and toggle.count():
+            toggle.click()
+        user.wait_for(state="visible", timeout=20_000)
+        user.fill(email)
+        page.locator("input[name=password]").first.fill(password)
+        btn = page.locator('[data-action="logIn"]').first
+        if btn.count() and btn.is_visible():
+            btn.click()
+        else:
+            page.locator("input[name=password]").first.press("Enter")
+    page.wait_for_load_state("networkidle", timeout=45_000)
+
+
 def fetch_quarrymon(page: Page, site: dict, today: datetime) -> dict | None:
+    pin = env(f"{site['env']}_PIN")
     email = env(f"{site['env']}_EMAIL") or env("QM_EMAIL")
     password = env(f"{site['env']}_PASSWORD") or env("QM_PASSWORD")
     try:
         page.goto(site["url"] + "/gross/", wait_until="networkidle", timeout=60_000)
         if is_login_page(page):
-            if not (email and password):
-                log(f"{site['karjaar']}: sessioon aegunud ja parool puudub")
+            if not (pin or (email and password)):
+                log(f"{site['karjaar']}: sessioon aegunud ja PIN/parool puudub")
                 return None
-            log(f"{site['karjaar']}: login sisse")
-            fill_login(page, email, password)
+            log(f"{site['karjaar']}: login sisse ({'PIN' if pin else 'e-post + parool'})")
+            qm_login(page, pin, email, password)
             page.goto(site["url"] + "/gross/", wait_until="networkidle", timeout=60_000)
             if is_login_page(page):
                 log(f"{site['karjaar']}: sisselogimine ebaõnnestus")
