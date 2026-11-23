@@ -25,7 +25,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: uuenda
+  group: uuenda-${{ github.event_name == 'push' && 'kujundus' || 'andmed' }}
   cancel-in-progress: false
 
 jobs:
@@ -135,8 +135,8 @@ jobs:
           if [ "$D" -gt 5 ] || [ "$HM" -lt 0620 ] || [ "$HM" -ge 1850 ]; then echo "Väljaspool tööaega, kordust ei käivita."; exit 0; fi
           START="${{ needs.uuenda.outputs.start }}"; [ -z "$START" ] && START=$(date +%s)
           WAIT=$(( START + 600 - $(date +%s) )); [ "$WAIT" -gt 0 ] && sleep "$WAIT"
-          ACTIVE=$(gh run list -w update.yml -L 20 --json status,databaseId \
-            -q '[.[] | select(.status != "completed" and .databaseId != ${{ github.run_id }})] | length')
+          ACTIVE=$(gh run list -w update.yml -L 20 --json status,databaseId,event \
+            -q '[.[] | select(.status != "completed" and .event != "push" and .databaseId != ${{ github.run_id }})] | length')
           if [ "$ACTIVE" -gt 0 ]; then echo "Teine uuendus juba ootel/käib, uut ei käivita."; exit 0; fi
           gh workflow run update.yml --ref main -f force=false
           echo "Järgmine uuendus käivitatud."
