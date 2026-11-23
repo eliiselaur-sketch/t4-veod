@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="et">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T4 karjääride veod</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #faf9f6; --panel: #ffffff; --fg: #1f1e1c; --muted: #6b6862; --line: #e6e3dc;
+  --accent: #2f6fb3; --grid: #eeebe5; --axis: #c9c5bc; --warn-bg: #fff4e0; --warn-fg: #8a5300; --ok: #2e7d4f;
+  --radius: 10px; --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; --serif: "Source Serif 4", Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #181816; --panel: #222220; --fg: #ecebe7; --muted: #a09d96; --line: #34332f;
+          --accent: #6aa5e6; --grid: #2c2b28; --axis: #4a4843; --warn-bg: #3a2c14; --warn-fg: #f2c27a; --ok: #6cc592; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+.t4 { max-width: 1000px; margin: 0 auto; padding: 28px 16px 48px; display: flex; flex-direction: column; gap: 32px; }
+.t4-head h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(1.7rem, 4vw, 2.3rem); margin: 0 0 6px; }
+.t4-lede { margin: 0; color: var(--muted); }
+.t4-lede b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.t4-updated { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 14px; padding: 10px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); font-size: .95rem; }
+.t4-updated b { font-variant-numeric: tabular-nums; }
+.t4-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+.t4-updated.stale { background: var(--warn-bg); color: var(--warn-fg); border-color: transparent; }
+.t4-updated.stale .t4-dot { background: var(--warn-fg); }
+.t4-updated small { color: var(--muted); }
+.t4-updated.stale small { color: inherit; opacity: .85; }
+.t4-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.t4-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.t4-label { font-size: .8rem; color: var(--muted); letter-spacing: .02em; }
+.t4-num { font-family: var(--serif); font-size: 2.2rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.t4-unit { font-size: .8rem; color: var(--muted); }
+.t4 h2 { font-size: 1.1rem; font-weight: 600; margin: 0 0 4px; }
+.t4-sub { font-size: .85rem; color: var(--muted); margin: 0 0 10px; }
+.t4-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 14px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+th:first-child, td:first-child, th.l, td.l { text-align: left; }
+th { font-size: .8rem; color: var(--muted); font-weight: 500; }
+tr.t4-zero td { color: var(--muted); }
+td .t4-src { font-size: .75rem; color: var(--muted); margin-left: 6px; }
+.t4-chart { position: relative; min-height: 240px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
+.t4-chart svg text { fill: var(--muted); font-size: 12px; font-family: var(--sans); }
+.t4-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12);
+  border-radius: 8px; padding: 4px 8px; font-size: .8rem; white-space: nowrap; }
+.t4-note { font-size: .8rem; color: var(--muted); margin: 0; }
+.t4-error { padding: 14px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); }
+</style>
+</head>
+<body>
+<div class="t4">
+  <header class="t4-head">
+    <div class="t4-updated" id="uuendatud" role="status">
+      <span class="t4-dot" aria-hidden="true"></span>
+      <span>Andmed viimati uuendatud: <b id="uuendatud-aeg">laadin…</b></span>
+      <small id="uuendatud-info"></small>
+    </div>
+    <h1>T4 karjääride veod</h1>
+    <p class="t4-lede">Seis <b id="l-aeg">—</b>. Täna on objektile vedanud <b id="l-autosid">—</b> erinevat autot <b id="l-koormaid">—</b> koormaga, kokku <b id="l-tonnid">—</b> t.</p>
+  </header>
+
+  <div id="viga" class="t4-error" hidden></div>
+
+  <section class="t4-kpis" aria-label="Tänane kokkuvõte">
+    <div class="t4-card"><span class="t4-label">Autosid (unikaalsed numbrid)</span><span class="t4-num" id="k-autosid">—</span></div>
+    <div class="t4-card"><span class="t4-label">Koormaid</span><span class="t4-num" id="k-koormaid">—</span></div>
+    <div class="t4-card"><span class="t4-label">Kokku veetud</span><span class="t4-num" id="k-tonnid">—</span><span class="t4-unit">tonni</span></div>
+  </section>
+
+  <section>
+    <h2>Karjääride kaupa</h2>
+    <p class="t4-sub">Viimane seis tänase päeva algusest. Autode arv on unikaalsete registrinumbrite arv.</p>
+    <div class="t4-wrap"><table>
+      <thead><tr><th>Karjäär</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+      <tbody id="tabel"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Veofirmad</h2>
+    <p class="t4-sub">Kes veab, viimase seisu järgi Waybilleri veolehtedest (auto tegelik omanik). Veolehed võivad kaalumistest paar koormat maha jääda.</p>
+    <div class="t4-wrap"><table>
+      <thead><tr><th>Karjäär</th><th class="l">Veofirma</th><th>Autosid</th><th>Koormaid</th></tr></thead>
+      <tbody id="firmatabel"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Päeva käik</h2>
+    <p class="t4-sub">Kõigi karjääride tonnid kokku iga tunni seisuga, viimane päev.</p>
+    <div class="t4-chart" id="graafik"></div>
+  </section>
+
+  <section>
+    <h2>Eelmised päevad</h2>
+    <p class="t4-sub">Iga päeva viimane mõõdetud seis (kell näitab, millal see võeti).</p>
+    <div class="t4-wrap"><table>
+      <thead><tr><th>Päev</th><th>Seis kell</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+      <tbody id="paevatabel"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Eelmised päevad karjääride kaupa</h2>
+    <p class="t4-sub">Iga päeva viimane mõõdetud seis iga karjääri kohta. Karjäärid, kust sel päeval vedusid polnud, on välja jäetud.</p>
+    <div class="t4-wrap"><table>
+      <thead><tr><th>Päev</th><th class="l">Karjäär</th><th>Seis kell</th><th>Autosid</th><th>Koormaid</th><th>Tonnid</th></tr></thead>
+      <tbody id="paevakarjaar"></tbody>
+    </table></div>
+  </section>
+
+  <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 8–19 iga tunni järel; leht laeb uued andmed ise iga 5 minuti tagant. Kui mõni tund puudub, ei õnnestunud tol korral andmeid kätte saada.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script>
+(() => {
+  const fmtT = (v) => d3.format(',.1f')(v).replace(/,/g, ' ').replace('.', ',');
+  const fmtN = (v) => d3.format(',d')(v).replace(/,/g, ' ');
+  const day = (s) => { const [y, m, d] = s.split('-'); return `${d}.${m}.${y}`; };
+  const $ = (id) => document.getElementById(id);
+  const txt = (id, v) => { $(id).textContent = v; };
+
+  function fillTable(id, rows, cells, rowClass) {
+    const tb = $(id);
+    tb.replaceChildren();
+    rows.forEach((r) => {
+      const tr = document.createElement('tr');
+      if (rowClass) { const c = rowClass(r); if (c) tr.className = c; }
+      cells(r).forEach((v) => {
+        const td = document.createElement('td');
+        if (Array.isArray(v)) { td.textContent = v[0]; if (v[1]) { const s = document.createElement('span'); s.className = 't4-src'; s.textContent = v[1]; td.append(s); } }
+        else { td.textContent = v; if (typeof v === 'string' && !/^[\d\s\u00a0,.:]+$/.test(v)) td.className = 'l'; }
+        tr.append(td);
+      });
+      tb.append(tr);
+    });
+  }
+
+  function showUpdated(data) {
+    const box = $('uuendatud');
+    if (!data.uuendatud) { txt('uuendatud-aeg', '—'); return; }
+    const t = new Date(data.uuendatud);
+    const s = t.toLocaleString('et-EE', { timeZone: 'Europe/Tallinn', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    txt('uuendatud-aeg', s);
+    const ageMin = Math.round((Date.now() - t.getTime()) / 60000);
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Tallinn' }));
+    const workTime = now.getDay() >= 1 && now.getDay() <= 5 && now.getHours() >= 9 && now.getHours() <= 19;
+    const stale = workTime && ageMin > 120;
+    box.classList.toggle('stale', stale);
+    const puudu = (data.viimane_kontroll && data.viimane_kontroll.puudu) || [];
+    let info = ageMin < 60 ? `${ageMin} min tagasi` : `${Math.floor(ageMin / 60)} h ${ageMin % 60} min tagasi`;
+    if (stale) info += ' · uuendamine võib olla katki';
+    if (puudu.length) info += ` · viimasel korral puudus: ${puudu.join(', ')}`;
+    txt('uuendatud-info', info);
+  }
+
+  function drawChart(el, rows) {
+    el.replaceChildren();
+    if (!rows.length) { el.textContent = '—'; return; }
+    const W = Math.max(280, el.clientWidth - 16), H = 240, m = { t: 22, r: 12, b: 26, l: 48 };
+    const x = d3.scaleBand().domain(rows.map((r) => r.kell)).range([m.l, W - m.r]).padding(0.25);
+    const y = d3.scaleLinear().domain([0, d3.max(rows, (r) => r.tonnid) * 1.12 || 1]).nice().range([H - m.b, m.t]);
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img')
+      .attr('aria-label', 'Tonnid kokku tundide kaupa: ' + rows.map((r) => `${r.kell} ${fmtT(r.tonnid)} t`).join(', '));
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickSize(-(W - m.l - m.r)).tickFormat(fmtN))
+      .call((g) => { g.select('.domain').remove(); g.selectAll('line').style('stroke', 'var(--grid)'); });
+    const skip = Math.ceil(rows.length * 44 / (W - m.l - m.r));
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickSizeOuter(0).tickFormat((k, i) => i % Math.max(1, skip) ? '' : k))
+      .call((g) => g.select('.domain').style('stroke', 'var(--axis)')).call((g) => g.selectAll('line').remove());
+    const tip = d3.select(el).append('div').attr('class', 't4-tip').attr('hidden', '');
+    svg.append('g').selectAll('rect').data(rows).join('rect')
+      .attr('x', (r) => x(r.kell)).attr('width', x.bandwidth()).attr('y', (r) => y(r.tonnid)).attr('height', (r) => y(0) - y(r.tonnid))
+      .attr('rx', 2).style('fill', 'var(--accent)')
+      .on('pointerenter pointermove', (ev, r) => {
+        const [px, py] = d3.pointer(ev, el);
+        tip.attr('hidden', null).text(`Kell ${r.kell}: ${fmtT(r.tonnid)} t`);
+        const tw = tip.node().offsetWidth;
+        tip.style('left', Math.min(Math.max(0, px - tw / 2), el.clientWidth - tw) + 'px').style('top', Math.max(0, py - 36) + 'px');
+      })
+      .on('pointerleave', () => tip.attr('hidden', ''));
+    const last = rows[rows.length - 1];
+    svg.append('text').attr('x', x(last.kell) + x.bandwidth() / 2).attr('y', y(last.tonnid) - 6).attr('text-anchor', 'middle')
+      .style('fill', 'var(--fg)').text(fmtT(last.tonnid));
+  }
+
+  let lastData = null;
+  function render(data) {
+    lastData = data;
+    showUpdated(data);
+    const seis = (data.rows || []).map((r) => ({ ...r, autosid: +r.autosid, koormaid: +r.koormaid, tonnid: +r.tonnid }));
+    if (!seis.length) return;
+
+    const lastAeg = d3.max(seis, (r) => r.aeg);
+    const viimane = seis.filter((r) => r.aeg === lastAeg);
+    const kokku = { autosid: d3.sum(viimane, (r) => r.autosid), koormaid: d3.sum(viimane, (r) => r.koormaid), tonnid: d3.sum(viimane, (r) => r.tonnid) };
+    const [d0, k0] = lastAeg.split(' ');
+    txt('l-aeg', `${day(d0)} kell ${k0}`);
+    txt('l-autosid', fmtN(kokku.autosid)); txt('l-koormaid', fmtN(kokku.koormaid)); txt('l-tonnid', fmtT(kokku.tonnid));
+    txt('k-autosid', fmtN(kokku.autosid)); txt('k-koormaid', fmtN(kokku.koormaid)); txt('k-tonnid', fmtT(kokku.tonnid));
+
+    fillTable('tabel', viimane, (r) => [r.allikas && r.allikas.includes('varu') ? [r.karjaar, 'Waybilleri järgi'] : r.karjaar, fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)],
+      (r) => r.koormaid ? null : 't4-zero');
+
+    const firmad = (data.firmad || []);
+    const lastF = d3.max(firmad, (r) => r.aeg);
+    fillTable('firmatabel', firmad.filter((r) => r.aeg === lastF)
+      .sort((a, b) => d3.ascending(a.karjaar, b.karjaar) || d3.descending(+a.koormaid, +b.koormaid)),
+      (r) => [r.karjaar, r.vedaja, fmtN(+r.autosid), fmtN(+r.koormaid)]);
+
+    const lastDay = d3.max(seis, (r) => r.kuupaev);
+    const tunnid = d3.rollups(seis.filter((r) => r.kuupaev === lastDay), (v) => d3.sum(v, (r) => r.tonnid), (r) => r.kell)
+      .map(([kell, tonnid]) => ({ kell, tonnid })).sort((a, b) => d3.ascending(a.kell, b.kell));
+    drawChart($('graafik'), tunnid);
+
+    const paevad = d3.rollups(seis, (v) => {
+      const k = d3.max(v, (r) => r.kell); const w = v.filter((r) => r.kell === k);
+      return { kell: k, autosid: d3.sum(w, (r) => r.autosid), koormaid: d3.sum(w, (r) => r.koormaid), tonnid: d3.sum(w, (r) => r.tonnid), rows: w };
+    }, (r) => r.kuupaev).map(([kuupaev, o]) => ({ kuupaev, ...o })).sort((a, b) => d3.descending(a.kuupaev, b.kuupaev));
+    fillTable('paevatabel', paevad, (r) => [day(r.kuupaev), r.kell, fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)]);
+    fillTable('paevakarjaar', paevad.flatMap((p) => p.rows.filter((r) => r.koormaid > 0).sort((a, b) => b.tonnid - a.tonnid)),
+      (r) => [day(r.kuupaev), r.karjaar, r.kell, fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)]);
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      render(await res.json());
+      $('viga').hidden = true;
+    } catch (e) {
+      $('viga').hidden = false;
+      $('viga').textContent = 'Andmeid ei õnnestunud laadida (' + e.message + '). Proovin uuesti 5 minuti pärast.';
+    }
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+  setInterval(() => lastData && showUpdated(lastData), 60 * 1000);
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => lastData && render(lastData), 200); });
+})();
+</script>
+</body>
+</html>

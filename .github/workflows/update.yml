@@ -1,0 +1,103 @@
+name: Uuenda andmed
+
+on:
+  schedule:
+    - cron: '0 * * * *'        # iga täistund (UTC); skript ise töötab ainult E–R kell 8–19 Tallinna aja järgi
+  workflow_dispatch:            # käsitsi käivitamine: Actions -> Uuenda andmed -> Run workflow
+    inputs:
+      force:
+        description: 'Käivita ka väljaspool tööaega'
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths: ['docs/index.html']  # kujunduse muutmisel avaldatakse leht kohe uuesti
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: uuenda
+  cancel-in-progress: false
+
+jobs:
+  uuenda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Paigalda Playwright
+        if: github.event_name != 'push'
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Taasta salvestatud sessioon (kui olemas)
+        if: github.event_name != 'push'
+        env:
+          AUTH_STATE_B64: ${{ secrets.AUTH_STATE_B64 }}
+        run: |
+          if [ -n "$AUTH_STATE_B64" ]; then
+            echo "$AUTH_STATE_B64" | base64 -d > "$RUNNER_TEMP/auth.json"
+            echo "AUTH_STATE_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
+            echo "Sessioonifail leitud."
+          else
+            echo "Sessioonifaili pole, kasutan paroole."
+          fi
+
+      - name: Too andmed
+        if: github.event_name != 'push'
+        env:
+          QM_EMAIL: ${{ secrets.QM_EMAIL }}
+          QM_PASSWORD: ${{ secrets.QM_PASSWORD }}
+          TIKA_EMAIL: ${{ secrets.TIKA_EMAIL }}
+          TIKA_PASSWORD: ${{ secrets.TIKA_PASSWORD }}
+          VIRUKULA_EMAIL: ${{ secrets.VIRUKULA_EMAIL }}
+          VIRUKULA_PASSWORD: ${{ secrets.VIRUKULA_PASSWORD }}
+          JAAKNA_EMAIL: ${{ secrets.JAAKNA_EMAIL }}
+          JAAKNA_PASSWORD: ${{ secrets.JAAKNA_PASSWORD }}
+          WAYBILLER_EMAIL: ${{ secrets.WAYBILLER_EMAIL }}
+          WAYBILLER_PASSWORD: ${{ secrets.WAYBILLER_PASSWORD }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
+            python scraper/fetch.py --force
+          else
+            python scraper/fetch.py
+          fi
+
+      - name: Salvesta data.json repositooriumisse
+        if: github.event_name != 'push'
+        run: |
+          rm -f "$RUNNER_TEMP/auth.json"
+          if git diff --quiet -- docs/data.json; then
+            echo "Andmed ei muutunud."
+          else
+            git config user.name "t4-andmed[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/data.json
+            git commit -m "Andmed $(TZ=Europe/Tallinn date '+%d.%m.%Y %H:%M')"
+            git pull --rebase --autostash
+            git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  avalda:
+    needs: uuenda
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
