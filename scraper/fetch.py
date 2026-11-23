@@ -141,9 +141,16 @@ def qm_login(page: Page, pin: str | None, email: str | None, password: str | Non
             toggle.click()
         pad.wait_for(state="visible", timeout=20_000)
         for digit in pin:
-            page.locator(f'.login-by-pin .pad[data-num="{digit}"]').first.click()
-            page.wait_for_timeout(150)
-        page.locator('.login-by-pin [data-action="pinLogin"]').first.click()
+            page.locator(f'.login-by-pin .pad[data-num="{digit}"]').first.click(timeout=10_000)
+            page.wait_for_timeout(200)
+        # Mõnel lehel logib täis PIN ise sisse ja leht vahetub – siis nuppu enam pole.
+        page.wait_for_timeout(2_000)
+        btn = page.locator('.login-by-pin [data-action="pinLogin"]').first
+        try:
+            if "login" in page.url.lower() and btn.is_visible():
+                btn.click(timeout=5_000)
+        except Exception:  # noqa: BLE001
+            pass
     else:
         user = page.locator("input[name=email]").first
         if not user.is_visible() and toggle.count():
@@ -156,7 +163,24 @@ def qm_login(page: Page, pin: str | None, email: str | None, password: str | Non
             btn.click()
         else:
             page.locator("input[name=password]").first.press("Enter")
+    # oota, kuni sisselogimise järel leht vahetub
+    try:
+        page.wait_for_url(lambda u: "login" not in u.lower(), timeout=20_000)
+    except Exception:  # noqa: BLE001
+        pass
     page.wait_for_load_state("networkidle", timeout=45_000)
+
+
+def goto_retry(page: Page, url: str) -> None:
+    for attempt in range(3):
+        try:
+            page.goto(url, wait_until="networkidle", timeout=60_000)
+            return
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                raise
+            log(f"  uus katse ({str(e).splitlines()[0][:80]})")
+            page.wait_for_timeout(3_000)
 
 
 def fetch_quarrymon(page: Page, site: dict, today: datetime) -> dict | None:
@@ -164,14 +188,14 @@ def fetch_quarrymon(page: Page, site: dict, today: datetime) -> dict | None:
     email = env(f"{site['env']}_EMAIL") or env("QM_EMAIL")
     password = env(f"{site['env']}_PASSWORD") or env("QM_PASSWORD")
     try:
-        page.goto(site["url"] + "/gross/", wait_until="networkidle", timeout=60_000)
+        goto_retry(page, site["url"] + "/gross/")
         if is_login_page(page):
             if not (pin or (email and password)):
                 log(f"{site['karjaar']}: sessioon aegunud ja PIN/parool puudub")
                 return None
             log(f"{site['karjaar']}: login sisse ({'PIN' if pin else 'e-post + parool'})")
             qm_login(page, pin, email, password)
-            page.goto(site["url"] + "/gross/", wait_until="networkidle", timeout=60_000)
+            goto_retry(page, site["url"] + "/gross/")
             if is_login_page(page):
                 log(f"{site['karjaar']}: sisselogimine ebaõnnestus")
                 return None
