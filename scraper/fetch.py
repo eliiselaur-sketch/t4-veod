@@ -41,8 +41,8 @@ PBKDF2_ITER = 600_000
 
 # Tööaeg (Tallinna aeg). Väljaspool seda skript ei tee midagi, et ei tekiks tühje seise.
 ACTIVE_DAYS = {0, 1, 2, 3, 4}          # E–R
-ACTIVE_FROM_HOUR = int(os.environ.get("ACTIVE_FROM_HOUR", "8"))
-ACTIVE_TO_HOUR = int(os.environ.get("ACTIVE_TO_HOUR", "19"))   # viimane käivitus kell 19:00
+ACTIVE_FROM = os.environ.get("ACTIVE_FROM", "06:30")                  # esimene käivitus (HH:MM)
+ACTIVE_TO = os.environ.get("ACTIVE_TO", "19:00")                      # viimane käivitus (HH:MM)
 KEEP_DAYS = int(os.environ.get("KEEP_DAYS", "120"))             # kui kaua ajalugu hoida
 
 # --- Allikad -----------------------------------------------------------------
@@ -536,7 +536,7 @@ def main() -> int:
 
     now = datetime.now(TZ)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if not args.backfill and not args.force and not (now.weekday() in ACTIVE_DAYS and ACTIVE_FROM_HOUR <= now.hour <= ACTIVE_TO_HOUR):
+    if not args.backfill and not args.force and not (now.weekday() in ACTIVE_DAYS and ACTIVE_FROM <= now.strftime("%H:%M") <= ACTIVE_TO):
         log(f"Väljaspool tööaega ({now:%a %H:%M}), ei tee midagi.")
         return 0
 

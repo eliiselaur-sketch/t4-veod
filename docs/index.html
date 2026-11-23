@@ -242,7 +242,7 @@ body:not(.lukus) .t4-lock { display: none; }
     </section>
   </div>
 
-  <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 8–19 iga 10 minuti tagant; leht laeb uued andmed ise iga 2 minuti järel. „Praegu veab" tähendab, et auto viimasest koormast pole möödas rohkem kui umbes poolteist tema tavalist ringiaega (vähemalt 45, kõige rohkem 120 minutit).</p>
+  <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 6.30–19 iga 10 minuti tagant; leht laeb uued andmed ise iga 2 minuti järel. „Praegu veab" tähendab, et auto viimasest koormast pole möödas rohkem kui umbes poolteist tema tavalist ringiaega (vähemalt 45, kõige rohkem 120 minutit).</p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
@@ -278,7 +278,7 @@ body:not(.lukus) .t4-lock { display: none; }
     txt('uuendatud-aeg', s);
     const ageMin = Math.round((Date.now() - t.getTime()) / 60000);
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Tallinn' }));
-    const workTime = now.getDay() >= 1 && now.getDay() <= 5 && now.getHours() >= 9 && now.getHours() <= 19;
+    const workTime = now.getDay() >= 1 && now.getDay() <= 5 && now.getHours() >= 7 && now.getHours() <= 19;
     const stale = workTime && ageMin > 40;
     box.classList.toggle('stale', stale);
     const puudu = (data.viimane_kontroll && data.viimane_kontroll.puudu) || [];

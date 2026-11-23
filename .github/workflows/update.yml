@@ -3,7 +3,7 @@ name: Uuenda andmed
 on:
   schedule:
     - cron: '*/10 * * * *'     # varuvõimalus; GitHub jätab neid tihti vahele
-    - cron: '3 6,7 * * 1-5'    # hommikune käivitus (UTC), sealt edasi kordab töövoog ennast ise iga 10 min
+    - cron: '31,41,51 3,4 * * 1-5'  # hommikune käivitus 6.30 Tallinna aja järgi (UTC; talve- ja suveaeg), edasi kordab töövoog ennast ise
   workflow_dispatch:            # käsitsi käivitamine: Actions -> Uuenda andmed -> Run workflow
     inputs:
       force:
@@ -131,8 +131,8 @@ jobs:
     steps:
       - name: Oota ja käivita järgmine uuendus
         run: |
-          D=$(TZ=Europe/Tallinn date +%u); H=$(TZ=Europe/Tallinn date +%H)
-          if [ "$D" -gt 5 ] || [ "$H" -lt 8 ] || [ "$H" -ge 19 ]; then echo "Väljaspool tööaega, kordust ei käivita."; exit 0; fi
+          D=$(TZ=Europe/Tallinn date +%u); HM=$(TZ=Europe/Tallinn date +%H%M)
+          if [ "$D" -gt 5 ] || [ "$HM" -lt 0620 ] || [ "$HM" -ge 1850 ]; then echo "Väljaspool tööaega, kordust ei käivita."; exit 0; fi
           START="${{ needs.uuenda.outputs.start }}"; [ -z "$START" ] && START=$(date +%s)
           WAIT=$(( START + 600 - $(date +%s) )); [ "$WAIT" -gt 0 ] && sleep "$WAIT"
           ACTIVE=$(gh run list -w update.yml -L 20 --json status,databaseId \
