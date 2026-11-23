@@ -2,7 +2,8 @@ name: Uuenda andmed
 
 on:
   schedule:
-    - cron: '*/10 * * * *'     # iga 10 minuti tagant; skript ise töötab ainult E–R kell 8–19 Tallinna aja järgi
+    - cron: '*/10 * * * *'     # varuvõimalus; GitHub jätab neid tihti vahele
+    - cron: '3 6,7 * * 1-5'    # hommikune käivitus (UTC), sealt edasi kordab töövoog ennast ise iga 10 min
   workflow_dispatch:            # käsitsi käivitamine: Actions -> Uuenda andmed -> Run workflow
     inputs:
       force:
@@ -18,6 +19,7 @@ on:
     paths: ['docs/index.html']  # kujunduse muutmisel avaldatakse leht kohe uuesti
 
 permissions:
+  actions: write
   contents: write
   pages: write
   id-token: write
@@ -30,7 +32,12 @@ jobs:
   uuenda:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      start: ${{ steps.algus.outputs.start }}
     steps:
+      - id: algus
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -111,3 +118,25 @@ jobs:
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  # GitHubi ajastus (cron) on ebatäpne, seega käivitab töövoog end ise uuesti ~10 min pärast eelmise algust.
+  jargmine:
+    needs: [uuenda, avalda]
+    if: always() && github.event_name != 'push' && inputs.backfill_from == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Oota ja käivita järgmine uuendus
+        run: |
+          D=$(TZ=Europe/Tallinn date +%u); H=$(TZ=Europe/Tallinn date +%H)
+          if [ "$D" -gt 5 ] || [ "$H" -lt 8 ] || [ "$H" -ge 19 ]; then echo "Väljaspool tööaega, kordust ei käivita."; exit 0; fi
+          START="${{ needs.uuenda.outputs.start }}"; [ -z "$START" ] && START=$(date +%s)
+          WAIT=$(( START + 600 - $(date +%s) )); [ "$WAIT" -gt 0 ] && sleep "$WAIT"
+          ACTIVE=$(gh run list -w update.yml -L 20 --json status,databaseId \
+            -q '[.[] | select(.status != "completed" and .databaseId != ${{ github.run_id }})] | length')
+          if [ "$ACTIVE" -gt 0 ]; then echo "Teine uuendus juba ootel/käib, uut ei käivita."; exit 0; fi
+          gh workflow run update.yml --ref main -f force=false
+          echo "Järgmine uuendus käivitatud."
