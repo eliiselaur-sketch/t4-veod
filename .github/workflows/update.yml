@@ -39,6 +39,8 @@ jobs:
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
+        with:
+          ref: main   # alati uusim seis (ajastatud käivitus võib oodata järjekorras)
 
       - uses: actions/setup-python@v5
         with:
@@ -101,8 +103,12 @@ jobs:
             git config user.name "t4-andmed[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "Andmed $(TZ=Europe/Tallinn date '+%d.%m.%Y %H:%M')"
-            git pull --rebase --autostash
-            git push
+            for i in 1 2 3; do
+              git push && break
+              echo "Push ebaõnnestus, ühendan uusima seisuga (katse $i)"
+              git fetch origin main
+              git rebase -X theirs origin/main || { git rebase --abort; git reset --soft origin/main; git commit -m "Andmed $(TZ=Europe/Tallinn date '+%d.%m.%Y %H:%M')"; }
+            done
           fi
 
       - uses: actions/upload-pages-artifact@v3
@@ -138,5 +144,8 @@ jobs:
           ACTIVE=$(gh run list -w update.yml -L 20 --json status,databaseId,event \
             -q '[.[] | select(.status != "completed" and .event != "push" and .databaseId != ${{ github.run_id }})] | length')
           if [ "$ACTIVE" -gt 0 ]; then echo "Teine uuendus juba ootel/käib, uut ei käivita."; exit 0; fi
-          gh workflow run update.yml --ref main -f force=false
-          echo "Järgmine uuendus käivitatud."
+          for i in 1 2 3 4 5 6; do
+            if gh workflow run update.yml --ref main -f force=false; then echo "Järgmine uuendus käivitatud."; exit 0; fi
+            echo "GitHub ei võtnud käivitust vastu (katse $i), proovin 30 s pärast uuesti."; sleep 30
+          done
+          exit 1
