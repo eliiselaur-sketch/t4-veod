@@ -98,8 +98,8 @@ body:not(.lukus) .t4-lock { display: none; }
 <div class="t4-lock">
   <form id="lukk" autocomplete="off">
     <h1>T4 karjääride veod</h1>
-    <p>Sisesta PIN-kood, et andmeid näha.</p>
-    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" aria-label="PIN-kood" required autofocus>
+    <p>Sisesta parool, et andmeid näha.</p>
+    <input id="pin" type="password" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="current-password" aria-label="Parool" required autofocus>
     <label class="mem"><input id="mäleta" type="checkbox" checked> Jäta selles seadmes meelde</label>
     <button id="ava" type="submit">Ava</button>
     <div class="err" id="pinviga" hidden></div>
@@ -514,10 +514,10 @@ body:not(.lukus) .t4-lock { display: none; }
       if (!env) { lock('Krüpteeritud andmefaili veel pole. Proovi mõne minuti pärast uuesti.'); return; }
       if (!aesKey || keySalt !== env.salt) {
         aesKey = await restoreKey(env); keySalt = aesKey ? env.salt : null;
-        if (!aesKey) { if (!document.body.classList.contains('lukus')) lock('PIN on muutunud – sisesta uus PIN.'); else lock(); return; }
+        if (!aesKey) { if (!document.body.classList.contains('lukus')) lock('Parool on muutunud – sisesta uus parool.'); else lock(); return; }
       }
       let data;
-      try { data = await decrypt(env, aesKey); } catch (e) { lock('PIN on muutunud – sisesta uus PIN.'); return; }
+      try { data = await decrypt(env, aesKey); } catch (e) { lock('Parool on muutunud – sisesta uus parool.'); return; }
       unlock();
       render(data);
       $('viga').hidden = true;
@@ -529,14 +529,14 @@ body:not(.lukus) .t4-lock { display: none; }
 
   $('lukk').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const pin = $('pin').value.trim(); if (!pin) return;
+    const pin = $('pin').value.trim().toUpperCase(); if (!pin) return;  // suur- ja väiketähed pole olulised
     $('ava').disabled = true; $('ava').textContent = 'Kontrollin…'; $('pinviga').hidden = true;
     try {
       const env = await fetchEnv();
       if (!env) throw new Error('Krüpteeritud andmefaili veel pole.');
       const key = await deriveKey(pin, env);
       let data;
-      try { data = await decrypt(env, key); } catch (e) { throw new Error('Vale PIN-kood.'); }
+      try { data = await decrypt(env, key); } catch (e) { throw new Error('Vale parool.'); }
       aesKey = key; keySalt = env.salt;
       if ($('mäleta').checked) lsSet(KEY_LS, JSON.stringify({ salt: env.salt, k: toB64(await crypto.subtle.exportKey('raw', key)) }));
       else lsSet(KEY_LS, null);

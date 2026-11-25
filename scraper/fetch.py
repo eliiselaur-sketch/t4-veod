@@ -383,7 +383,7 @@ def _derive_key(pin: str, salt: bytes, iterations: int) -> bytes:
 
 
 def _pin() -> str:
-    return os.environ.get("DATA_PIN", "").strip()
+    return os.environ.get("DATA_PIN", "").strip().upper()  # suur- ja väiketähed pole olulised
 
 
 def load_data() -> dict:
