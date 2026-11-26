@@ -112,6 +112,7 @@ body:not(.lukus) .t4-lock { display: none; }
 .t4-dotc { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
 .t4-pin { display: inline-block; transform: translate(-50%, -50%); background: #2f6fb3; color: #fff; font: 600 11px/1 Inter, system-ui, sans-serif; padding: 3px 5px; border-radius: 5px; border: 1px solid #fff; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
 .t4-pin.old { opacity: .6; }
+.t4-pin.muu { background: #8a8a8a; opacity: .85; }
 .t4-pin.t4 { background: #b3412f; }
 .t4-pin.q { background: #2e7d4f; }
 .leaflet-container { font: inherit; }
@@ -277,7 +278,7 @@ body:not(.lukus) .t4-lock { display: none; }
     </section>
     <section>
       <h2>Autod ja juhid</h2>
-      <p class="t4-sub">Ees on autod, mis on praegu koormaga teel; siis laadimisel ja maha laaditud. Asukoht on kaardil ainult GPS-iga autodel.</p>
+      <p class="t4-sub">Ees on autod, mis on praegu koormaga teel; siis laadimisel ja maha laaditud. Kaardil on sinised koormaga teel olevad autod (praegune asukoht) ja hallid teised (viimane teadaolev asukoht, tavaliselt mahalaadimise koht).</p>
       <input class="t4-search" id="kaart-otsi" type="search" inputmode="text" autocapitalize="characters" autocomplete="off" placeholder="Otsi auto numbri, juhi või vedaja järgi…" aria-label="Otsi autot">
       <div class="t4-cars" id="kaart-autod"></div>
     </section>
@@ -477,8 +478,9 @@ body:not(.lukus) .t4-lock { display: none; }
       }
       return { j: 0, txt: `Koormaga teel T4-sse (${a.karjaar}, sõitu alustas ${hm(a.alustas || a.laaditud)}) · GPS-i pole` };
     }
-    if (a.status === 0) return { j: 1, txt: `Veoleht loodud ${hm(a.laaditud)} (${a.karjaar}) – laadimisel või ootel` };
-    let t = `Maha laaditud T4-s ${hm(a.kohal)} – tagasiteel või lõpetanud`;
+    const gpsTxt = a.pos ? ` · viimane GPS-asukoht ${hm(new Date(a.pos[2] * 1000).toISOString())}` : '';
+    if (a.status === 0) return { j: 1, txt: `Veoleht loodud ${hm(a.laaditud)} (${a.karjaar}) – laadimisel või ootel${gpsTxt}` };
+    let t = `Maha laaditud T4-s ${hm(a.kohal)} – tagasiteel või lõpetanud${gpsTxt}`;
     if (a.kohal && a.alustas) {
       const tee = new Date(a.kohal) - new Date(a.alustas);
       if (tee > 5 * 60000 && tee < 4 * 3600000) t += ` · tagasi karjääris umbes ${hm(new Date(new Date(a.kohal).getTime() + tee).toISOString())}`;
@@ -518,7 +520,7 @@ body:not(.lukus) .t4-lock { display: none; }
     const list = kaartAutod.filter((a) => !raw || (q && normNr(a.nr).includes(q)) || (a.juht || '').toLowerCase().includes(qt) || (a.vedaja || '').toLowerCase().includes(qt));
     const box = $('kaart-autod');
     box.replaceChildren(...list.map((a) => {
-      const btn = el('button', { class: 't4-btn', type: 'button' }, a.pos ? 'Näita kaardil' : 'GPS-i pole');
+      const btn = el('button', { class: 't4-btn', type: 'button' }, a.pos ? (a._o.j === 0 ? 'Näita kaardil' : 'Viimane asukoht') : 'GPS-i pole');
       if (a.pos) btn.addEventListener('click', () => showOnMap(a)); else btn.setAttribute('disabled', '');
       const wb = el('a', { class: 't4-btn', href: 'https://app.waybiller.com/waybills/active/' + a.id, target: '_blank', rel: 'noopener' }, 'Waybiller');
       const card = el('div', { class: 't4-car' + (valitud === a.nr ? ' sel' : '') },
@@ -557,7 +559,7 @@ body:not(.lukus) .t4-lock { display: none; }
     Object.entries(qs).forEach(([q, ll]) => { addPin(ll, q, 'q'); pts.push(ll); });
     kaartAutod.filter((a) => a.pos).forEach((a) => {
       const pop = el('div', {}, el('b', {}, a.nr), el('br'), a.juht || '', el('br'), `${a.vedaja} · ${a.karjaar}`, el('br'), a._o.txt, el('br'), telLink(a));
-      a._m = addPin([a.pos[0], a.pos[1]], a.nr, a._o.vana ? 'old' : '', pop);
+      a._m = addPin([a.pos[0], a.pos[1]], a.nr, a._o.j === 0 ? (a._o.vana ? 'old' : '') : 'muu', pop);
       pts.push([a.pos[0], a.pos[1]]);
     });
     if (!fitted && pts.length) { map.fitBounds(pts, { padding: [30, 30], maxZoom: 12 }); fitted = true; }

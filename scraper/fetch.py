@@ -337,12 +337,14 @@ async ({start, end, dests}) => {
     off += 200;
   }
   const t4 = all.filter((w) => (w.all_waybill_destinations || []).some((d) => dests.includes(d.destination_name)));
-  const latest = {}, count = {};
+  const latest = {}, count = {}, byPlate = {};
   for (const w of t4) {
     const p = w.truck_reg_number || '?';
     count[p] = (count[p] || 0) + 1;
+    (byPlate[p] = byPlate[p] || []).push(w);
     if (!latest[p] || w.dispatcher_timestamp > latest[p].dispatcher_timestamp) latest[p] = w;
   }
+  Object.values(byPlate).forEach((l) => l.sort((a, b) => String(b.dispatcher_timestamp).localeCompare(String(a.dispatcher_timestamp))));
   const coords = (s) => { if (!s) return null; const m = String(s).split(/[ ,]+/).map(Number); return m.length >= 2 && !isNaN(m[0]) ? m.slice(0, 2) : null; };
   const one = async (w) => {
     const o = {id: w.id, nr: w.truck_reg_number || '?', status: w.status, gps: !!w.truck_gps_service_integration,
@@ -357,11 +359,13 @@ async ({start, end, dests}) => {
       o.origin_xy = coords(d.origin_coordinates);
       o.dest_xy = coords((d.final_waybill_destination || {}).destination_coords);
     } catch (e) { o.viga = String(e); }
-    if (o.gps && w.status === 1) {
+    // GPS-i lipp Waybilleri nimekirjas pole usaldusväärne: küsime marsruuti alati.
+    // Kui viimasel lehel punkte pole, proovime sama auto eelmist tänast lehte.
+    for (const ww of (byPlate[o.nr] || [w]).slice(0, 2)) {
       try {
-        const r = await (await fetch(`/api/v1/waybills/${w.id}/route/?since=1`, H)).json();
+        const r = await (await fetch(`/api/v1/waybills/${ww.id}/route/?since=1`, H)).json();
         const R = r.results || [];
-        if (R.length) { const q = R[R.length - 1]; o.pos = {x: q.x, y: q.y, t: q.t}; }
+        if (R.length) { const q = R[R.length - 1]; o.pos = {x: q.x, y: q.y, t: q.t, sama: ww.id === w.id}; break; }
       } catch (e) { /* asukohta pole */ }
     }
     return o;
@@ -418,7 +422,7 @@ def fetch_kaart(page: Page, now: datetime) -> dict | None:
             pos = _latlon(o["pos"]["x"], o["pos"]["y"]) + [o["pos"]["t"]]
         orig = _latlon(*o["origin_xy"]) if o.get("origin_xy") else None
         autod.append({
-            "id": o["id"], "nr": o["nr"], "status": o["status"], "gps": o["gps"],
+            "id": o["id"], "nr": o["nr"], "status": o["status"], "gps": bool(o.get("pos")),
             "vedaja": o.get("vedaja", ""), "juht": o.get("juht", ""), "telefon": o.get("telefon", ""),
             "karjaar": map_origin(o.get("origin", "")) or o.get("origin", ""),
             "karjaar_xy": orig, "laaditud": o.get("laaditud"), "alustas": o.get("alustas"), "kohal": o.get("kohal"),
