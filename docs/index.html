@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>T4 karjääride veod</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400&display=swap" rel="stylesheet">
 <style>
@@ -91,6 +92,30 @@ body:not(.lukus) .t4-lock { display: none; }
 .t4-lock button:disabled { opacity: .6; cursor: wait; }
 .t4-lock .err { color: var(--warn-fg); background: var(--warn-bg); padding: 8px 10px; border-radius: 8px; font-size: .92rem; }
 .t4-logout { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; font-size: .85rem; padding: 0; margin-left: auto; }
+.t4-map { height: 420px; border-radius: var(--radius); border: 1px solid var(--line); overflow: hidden; background: var(--panel); }
+@media (max-width: 600px) { .t4-map { height: 320px; } }
+.t4-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.t4-chip { padding: 4px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: .85rem; }
+.t4-chip b { font-variant-numeric: tabular-nums; }
+.t4-search { width: 100%; font: 1rem var(--sans); padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); margin: 0 0 12px; }
+.t4-cars { display: flex; flex-direction: column; gap: 8px; }
+.t4-car { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+@media (max-width: 600px) { .t4-car { grid-template-columns: 1fr; } .t4-car .act { justify-content: start; } }
+.t4-car.sel { outline: 2px solid var(--accent); }
+.t4-car .nr { font-weight: 600; font-variant-numeric: tabular-nums; }
+.t4-car .meta { color: var(--muted); font-size: .85rem; }
+.t4-car .olek { grid-column: 1 / -1; font-size: .9rem; }
+.t4-car .act { display: flex; gap: 8px; align-items: start; flex-wrap: wrap; justify-content: end; }
+.t4-btn { font: 500 .85rem var(--sans); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); text-decoration: none; cursor: pointer; white-space: nowrap; }
+.t4-btn.tel { background: var(--ok); color: #fff; border-color: transparent; }
+.t4-btn[disabled] { opacity: .45; cursor: default; }
+.t4-dotc { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.t4-pin { display: inline-block; transform: translate(-50%, -50%); background: #2f6fb3; color: #fff; font: 600 11px/1 Inter, system-ui, sans-serif; padding: 3px 5px; border-radius: 5px; border: 1px solid #fff; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.t4-pin.old { opacity: .6; }
+.t4-pin.t4 { background: #b3412f; }
+.t4-pin.q { background: #2e7d4f; }
+.leaflet-container { font: inherit; }
+.leaflet-popup-content .t4-btn.tel { display: inline-block; margin-top: 6px; color: #fff; }
 .t4-error { padding: 14px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); }
 </style>
 </head>
@@ -120,6 +145,7 @@ body:not(.lukus) .t4-lock { display: none; }
   <nav class="t4-tabs" aria-label="Vaated">
     <a href="#ulevaade" id="tab-ulevaade" aria-current="page">Ülevaade</a>
     <a href="#autod" id="tab-autod">Autod</a>
+    <a href="#kaart" id="tab-kaart">Kaart</a>
   </nav>
 
   <div id="viga" class="t4-error" hidden></div>
@@ -242,10 +268,26 @@ body:not(.lukus) .t4-lock { display: none; }
     </section>
   </div>
 
+  <div class="t4-view" id="vaade-kaart" hidden>
+    <section>
+      <h2>Kus autod on</h2>
+      <p class="t4-sub" id="kaart-sub">Iga auto tänane viimane veoleht Waybillerist.</p>
+      <div class="t4-chips" id="kaart-chips"></div>
+      <div class="t4-map" id="kaart-map" role="region" aria-label="Autode kaart"></div>
+    </section>
+    <section>
+      <h2>Autod ja juhid</h2>
+      <p class="t4-sub">Ees on autod, mis on praegu koormaga teel; siis laadimisel ja maha laaditud. Asukoht on kaardil ainult GPS-iga autodel.</p>
+      <input class="t4-search" id="kaart-otsi" type="search" inputmode="text" autocapitalize="characters" autocomplete="off" placeholder="Otsi auto numbri, juhi või vedaja järgi…" aria-label="Otsi autot">
+      <div class="t4-cars" id="kaart-autod"></div>
+    </section>
+  </div>
+
   <p class="t4-note">Andmed: Tika 2, Viruküla ja Jaakna II QuarryMonist (T4 lepingu kaalumised), Orava, Harku ja Ruukivi Waybillerist (veolehed sihtkohaga T4 Haimre-Konuvere). Asfaldiveod pole arvestatud. Uuendatakse automaatselt tööpäeviti kell 6.30–19 iga 10 minuti tagant; leht laeb uued andmed ise iga 2 minuti järel. „Praegu veab" tähendab, et auto viimasest koormast pole möödas rohkem kui umbes poolteist tema tavalist ringiaega (vähemalt 45, kõige rohkem 120 minutit).</p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (() => {
   const fmtT = (v) => d3.format(',.1f')(v).replace(/,/g, ' ').replace('.', ',');
@@ -414,12 +456,113 @@ body:not(.lukus) .t4-lock { display: none; }
   const ALLQ = ['Tika 2', 'Viruküla', 'Jaakna II', 'Orava', 'Harku', 'Ruukivi'];
 
   function showTab() {
-    const autod = location.hash === '#autod';
-    $('vaade-ulevaade').hidden = autod; $('vaade-autod').hidden = !autod;
-    $('tab-ulevaade').toggleAttribute('aria-current', !autod); if (!autod) $('tab-ulevaade').setAttribute('aria-current', 'page');
-    $('tab-autod').toggleAttribute('aria-current', autod); if (autod) $('tab-autod').setAttribute('aria-current', 'page');
+    const v = ({ '#autod': 'autod', '#kaart': 'kaart' })[location.hash] || 'ulevaade';
+    ['ulevaade', 'autod', 'kaart'].forEach((k) => {
+      $('vaade-' + k).hidden = k !== v;
+      if (k === v) $('tab-' + k).setAttribute('aria-current', 'page'); else $('tab-' + k).removeAttribute('aria-current');
+    });
     if (lastData) render(lastData);
   }
+
+  // ---- Kaart: autode asukoht, juht ja telefon ----
+  let map = null, layer = null, fitted = false, kaartAutod = [], valitud = null;
+  const hm = (iso) => iso ? new Date(iso).toLocaleTimeString('et-EE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Tallinn' }) : '—';
+  const normNr = (s) => String(s || '').toUpperCase().replace(/[^0-9A-ZÕÄÖÜŠŽ]/g, '');
+  const OLEK_VARV = ['#2f6fb3', '#c98a00', '#8a8a8a'];
+  function olek(a, nowMs) {
+    if (a.status === 1) {
+      if (a.pos) {
+        const min = Math.round((nowMs - a.pos[2] * 1000) / 60000);
+        return { j: 0, txt: `Koormaga teel T4-sse${a.kaugus_km != null ? ` · ${String(a.kaugus_km).replace('.', ',')} km linnulennult` : ''} · asukoht ${min <= 1 ? 'praegu' : min + ' min tagasi'}`, vana: min > 20 };
+      }
+      return { j: 0, txt: `Koormaga teel T4-sse (${a.karjaar}, sõitu alustas ${hm(a.alustas || a.laaditud)}) · GPS-i pole` };
+    }
+    if (a.status === 0) return { j: 1, txt: `Veoleht loodud ${hm(a.laaditud)} (${a.karjaar}) – laadimisel või ootel` };
+    let t = `Maha laaditud T4-s ${hm(a.kohal)} – tagasiteel või lõpetanud`;
+    if (a.kohal && a.alustas) {
+      const tee = new Date(a.kohal) - new Date(a.alustas);
+      if (tee > 5 * 60000 && tee < 4 * 3600000) t += ` · tagasi karjääris umbes ${hm(new Date(new Date(a.kohal).getTime() + tee).toISOString())}`;
+    }
+    return { j: 2, txt: t };
+  }
+  function ensureMap() {
+    if (map) return map;
+    if (typeof L === 'undefined') return null;
+    map = L.map('kaart-map').setView([58.95, 24.5], 9);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+    layer = L.layerGroup().addTo(map);
+    return map;
+  }
+  function addPin(ll, text, cls, popupNode) {
+    const span = el('span', { class: 't4-pin ' + (cls || '') }, text);
+    if (cls === '' || cls === 'old') span.style.background = OLEK_VARV[0];
+    const m = L.marker(ll, { icon: L.divIcon({ className: '', html: span, iconSize: null }), title: text }).addTo(layer);
+    if (popupNode) m.bindPopup(popupNode);
+    return m;
+  }
+  function telLink(a) {
+    if (!a.telefon) return el('span', { class: 't4-btn', 'aria-disabled': 'true' }, 'Telefon puudub');
+    return el('a', { class: 't4-btn tel', href: 'tel:' + a.telefon.replace(/[^\d+]/g, '') }, 'Helista ' + a.telefon);
+  }
+  function showOnMap(a) {
+    valitud = a.nr;
+    document.querySelectorAll('.t4-car').forEach((c) => c.classList.toggle('sel', c.dataset.nr === a.nr));
+    if (!ensureMap() || !a.pos) return;
+    $('kaart-map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    map.setView([a.pos[0], a.pos[1]], 13);
+    if (a._m) setTimeout(() => a._m.openPopup(), 300);
+  }
+  function renderKaartList() {
+    const raw = $('kaart-otsi').value.trim();
+    const q = normNr(raw), qt = raw.toLowerCase();
+    const list = kaartAutod.filter((a) => !raw || (q && normNr(a.nr).includes(q)) || (a.juht || '').toLowerCase().includes(qt) || (a.vedaja || '').toLowerCase().includes(qt));
+    const box = $('kaart-autod');
+    box.replaceChildren(...list.map((a) => {
+      const btn = el('button', { class: 't4-btn', type: 'button' }, a.pos ? 'Näita kaardil' : 'GPS-i pole');
+      if (a.pos) btn.addEventListener('click', () => showOnMap(a)); else btn.setAttribute('disabled', '');
+      const wb = el('a', { class: 't4-btn', href: 'https://app.waybiller.com/waybills/active/' + a.id, target: '_blank', rel: 'noopener' }, 'Waybiller');
+      const card = el('div', { class: 't4-car' + (valitud === a.nr ? ' sel' : '') },
+        el('div', {}, el('span', { class: 'nr' }, a.nr), ' ', el('span', { class: 'meta' }, `${a.karjaar} · ${a.vedaja} · ${a.koormaid} koormat täna`),
+          el('div', {}, a.juht || 'Juht teadmata')),
+        el('div', { class: 'act' }, telLink(a), btn, wb),
+        el('div', { class: 'olek' }, el('span', { class: 't4-dotc', style: `background:${OLEK_VARV[a._o.j]}` }), a._o.txt + (a._o.vana ? ' (vana asukoht)' : '')));
+      card.dataset.nr = a.nr;
+      return card;
+    }));
+    if (!list.length) box.append(el('p', { class: 't4-sub' }, kaartAutod.length ? 'Otsingule vastavat autot ei leitud.' : 'Täna pole veel ühtegi T4 veolehte.'));
+    if (q && list.length === 1 && list[0].pos && map && !$('vaade-kaart').hidden) map.setView([list[0].pos[0], list[0].pos[1]], 13);
+  }
+  function renderKaart(data) {
+    const K = data.kaart;
+    if (!K || !K.autod) { $('kaart-sub').textContent = 'Asukohaandmeid veel pole – need tulevad järgmise uuendusega.'; kaartAutod = []; renderKaartList(); return; }
+    const nowMs = Date.now();
+    kaartAutod = K.autod.map((a) => ({ ...a, _o: olek(a, nowMs) }))
+      .sort((x, y) => x._o.j - y._o.j || (x.kaugus_km ?? 999) - (y.kaugus_km ?? 999) || String(y.laaditud).localeCompare(String(x.laaditud)));
+    $('kaart-sub').textContent = `Seis ${hm(K.aeg)}. Iga auto tänane viimane veoleht Waybillerist. Asukoht uueneb koos lehega (~10 min); täpse hetkeseisu näed Waybilleris.`;
+    const c = [0, 0, 0]; kaartAutod.forEach((a) => c[a._o.j]++);
+    const gps = kaartAutod.filter((a) => a.pos).length;
+    $('kaart-chips').replaceChildren(
+      el('span', { class: 't4-chip' }, el('span', { class: 't4-dotc', style: `background:${OLEK_VARV[0]}` }), 'Koormaga teel ', el('b', {}, String(c[0]))),
+      el('span', { class: 't4-chip' }, el('span', { class: 't4-dotc', style: `background:${OLEK_VARV[1]}` }), 'Laadimisel / ootel ', el('b', {}, String(c[1]))),
+      el('span', { class: 't4-chip' }, el('span', { class: 't4-dotc', style: `background:${OLEK_VARV[2]}` }), 'Maha laaditud ', el('b', {}, String(c[2]))),
+      el('span', { class: 't4-chip' }, 'Kaardil (GPS) ', el('b', {}, `${gps}/${kaartAutod.length}`)));
+    renderKaartList();
+    if ($('vaade-kaart').hidden || !ensureMap()) return;
+    setTimeout(() => map.invalidateSize(), 0);
+    layer.clearLayers();
+    const pts = [];
+    if (K.sihtkoht) { addPin(K.sihtkoht, 'T4', 't4'); pts.push(K.sihtkoht); }
+    const qs = {};
+    kaartAutod.forEach((a) => { if (a.karjaar_xy && !qs[a.karjaar]) qs[a.karjaar] = a.karjaar_xy; });
+    Object.entries(qs).forEach(([q, ll]) => { addPin(ll, q, 'q'); pts.push(ll); });
+    kaartAutod.filter((a) => a.pos).forEach((a) => {
+      const pop = el('div', {}, el('b', {}, a.nr), el('br'), a.juht || '', el('br'), `${a.vedaja} · ${a.karjaar}`, el('br'), a._o.txt, el('br'), telLink(a));
+      a._m = addPin([a.pos[0], a.pos[1]], a.nr, a._o.vana ? 'old' : '', pop);
+      pts.push([a.pos[0], a.pos[1]]);
+    });
+    if (!fitted && pts.length) { map.fitBounds(pts, { padding: [30, 30], maxZoom: 12 }); fitted = true; }
+  }
+
   window.addEventListener('hashchange', showTab);
 
   let lastData = null;
@@ -446,6 +589,7 @@ body:not(.lukus) .t4-lock { display: none; }
       A ? fmtN((A.karjaarid[r.karjaar] || {}).veab || 0) : '—', fmtN(r.autosid), fmtN(r.koormaid), fmtT(r.tonnid)],
       (r) => r.koormaid ? null : 't4-zero');
     renderAutod(data, A);
+    renderKaart(data);
 
     const firmad = (data.firmad || []);
     const lastF = d3.max(firmad, (r) => r.aeg);
@@ -502,7 +646,7 @@ body:not(.lukus) .t4-lock { display: none; }
   }
   function unlock() { document.body.classList.remove('lukus'); }
   function lock(msg) {
-    aesKey = null; keySalt = null; lastData = null; lsSet(KEY_LS, null);
+    aesKey = null; keySalt = null; lastData = null; lsSet(KEY_LS, null); if (layer) layer.clearLayers(); kaartAutod = []; $('kaart-autod').replaceChildren();
     document.body.classList.add('lukus');
     $('pin').value = ''; $('pinviga').hidden = !msg; if (msg) $('pinviga').textContent = msg;
     setTimeout(() => $('pin').focus(), 0);
@@ -550,6 +694,7 @@ body:not(.lukus) .t4-lock { display: none; }
   });
   $('lukusta').addEventListener('click', () => lock());
 
+  $('kaart-otsi').addEventListener('input', renderKaartList);
   showTab();
   load();
   setInterval(load, 2 * 60 * 1000);

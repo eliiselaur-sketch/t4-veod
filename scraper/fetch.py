@@ -324,6 +324,112 @@ def fetch_waybiller(page: Page, days: list[datetime]) -> dict:
     return {}
 
 
+KAART_JS = r"""
+async ({start, end, dests}) => {
+  const H = {credentials: 'include', headers: {'Accept': 'application/json'}};
+  let all = [], off = 0;
+  for (let i = 0; i < 50; i++) {
+    const r = await fetch(`/api/v1/waybills/?limit=200&offset=${off}&start_date=${start}&end_date=${end}&status=0,1,2`, H);
+    if (!r.ok) return {error: 'HTTP ' + r.status};
+    const j = await r.json(); const res = j.results || j;
+    all = all.concat(res);
+    if (!j.next || res.length < 200) break;
+    off += 200;
+  }
+  const t4 = all.filter((w) => (w.all_waybill_destinations || []).some((d) => dests.includes(d.destination_name)));
+  const latest = {}, count = {};
+  for (const w of t4) {
+    const p = w.truck_reg_number || '?';
+    count[p] = (count[p] || 0) + 1;
+    if (!latest[p] || w.dispatcher_timestamp > latest[p].dispatcher_timestamp) latest[p] = w;
+  }
+  const coords = (s) => { if (!s) return null; const m = String(s).split(/[ ,]+/).map(Number); return m.length >= 2 && !isNaN(m[0]) ? m.slice(0, 2) : null; };
+  const one = async (w) => {
+    const o = {id: w.id, nr: w.truck_reg_number || '?', status: w.status, gps: !!w.truck_gps_service_integration,
+               vedaja: w.driver_company_name || '', origin: w.origin_name || '', laaditud: w.dispatcher_timestamp,
+               koormaid: count[w.truck_reg_number || '?'],
+               materjalid: (w.rows || []).map((r) => r.accepted_assortment_displayed_name || r.assortment_displayed_name || '')};
+    try {
+      const d = await (await fetch(`/api/v1/waybills/${w.id}/`, H)).json();
+      o.juht = d.driver_name || ''; o.telefon = d.driver_phone || '';
+      o.kohal = (d.final_waybill_destination || {}).destination_timestamp || d.accepted_timestamp || null;
+      o.alustas = d.driver_timestamp || null;
+      o.origin_xy = coords(d.origin_coordinates);
+      o.dest_xy = coords((d.final_waybill_destination || {}).destination_coords);
+    } catch (e) { o.viga = String(e); }
+    if (o.gps && w.status === 1) {
+      try {
+        const r = await (await fetch(`/api/v1/waybills/${w.id}/route/?since=1`, H)).json();
+        const R = r.results || [];
+        if (R.length) { const q = R[R.length - 1]; o.pos = {x: q.x, y: q.y, t: q.t}; }
+      } catch (e) { /* asukohta pole */ }
+    }
+    return o;
+  };
+  const list = Object.values(latest), out = [];
+  for (let i = 0; i < list.length; i += 6) out.push(...await Promise.all(list.slice(i, i + 6).map(one)));
+  return out;
+}
+"""
+
+
+def _latlon(a, b):
+    """Waybilleri koordinaatide järjekord pole alati sama; Eestis on laius ~57–60, pikkus ~21–29."""
+    if a is None or b is None:
+        return None
+    a, b = float(a), float(b)
+    return [a, b] if a > b else [b, a]
+
+
+def _km(p, q):
+    import math
+    if not p or not q:
+        return None
+    la1, lo1, la2, lo2 = map(math.radians, (p[0], p[1], q[0], q[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return round(6371 * 2 * math.asin(math.sqrt(h)), 1)
+
+
+def fetch_kaart(page: Page, now: datetime) -> dict | None:
+    """Tänaste T4 autode viimane veoleht: juht, telefon, olek ja (GPS-iga autodel) asukoht."""
+    try:
+        if not page.url.startswith(WAYBILLER_URL) or is_login_page(page):
+            return None
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = day_start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = (day_start + timedelta(days=1) - timedelta(seconds=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        res = page.evaluate(KAART_JS, {"start": start, "end": end, "dests": WAYBILLER_DESTINATIONS})
+        if not isinstance(res, list):
+            log(f"Kaart: viga {res}")
+            return None
+    except Exception as e:  # noqa: BLE001
+        log(f"Kaart: viga ({e})")
+        return None
+    dest = None
+    autod = []
+    for o in res:
+        if any(is_asphalt(m) for m in o.get("materjalid") or []):
+            continue
+        d = o.get("dest_xy")
+        if d and not dest:
+            dest = _latlon(*d)
+        pos = None
+        if o.get("pos"):
+            pos = _latlon(o["pos"]["x"], o["pos"]["y"]) + [o["pos"]["t"]]
+        orig = _latlon(*o["origin_xy"]) if o.get("origin_xy") else None
+        autod.append({
+            "id": o["id"], "nr": o["nr"], "status": o["status"], "gps": o["gps"],
+            "vedaja": o.get("vedaja", ""), "juht": o.get("juht", ""), "telefon": o.get("telefon", ""),
+            "karjaar": map_origin(o.get("origin", "")) or o.get("origin", ""),
+            "karjaar_xy": orig, "laaditud": o.get("laaditud"), "alustas": o.get("alustas"), "kohal": o.get("kohal"),
+            "koormaid": o.get("koormaid", 0), "pos": pos,
+        })
+    for a in autod:
+        a["kaugus_km"] = _km(a["pos"], dest) if a["pos"] else None
+    log(f"Kaart: {len(autod)} autot, GPS-asukoht {sum(1 for a in autod if a['pos'])} autol.")
+    return {"aeg": now.isoformat(timespec="seconds"), "sihtkoht": dest, "autod": autod}
+
+
 def summarize_waybills(waybills: list[dict]):
     per_q: dict[str, dict] = {}
     per_f: dict[tuple, dict] = {}
@@ -572,6 +678,7 @@ def main() -> int:
         for site in QUARRYMON:
             qm[site["karjaar"]] = fetch_quarrymon(page, site, days)
         wb = fetch_waybiller(page, days)
+        kaart = None if args.backfill else fetch_kaart(page, now)
         browser.close()
 
     # materjalid iga päeva kohta
@@ -626,6 +733,8 @@ def main() -> int:
     data["rows"] = thin_rows([r for r in data.get("rows", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + rows, paev, None)
     data["firmad"] = thin_rows([r for r in data.get("firmad", []) if r["aeg"] != aeg and r["kuupaev"] >= cutoff] + firmad, paev, None)
     data["autod"] = autod
+    if kaart is not None:
+        data["kaart"] = kaart          # ainult tänane seis, kirjutatakse iga kord üle (ajalugu ei hoita)
     paevad = data.setdefault("paevad_autod", {})
     paevad[paev] = {"unikaalseid": autod["unikaalseid"], "liikumisi": len(autod["liikumised"]),
                     "karjaarid": {q: v["kaisid"] for q, v in autod["karjaarid"].items() if v["kaisid"]},
